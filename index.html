@@ -678,48 +678,53 @@ function updateSBStatus(){
 
 async function testAndSaveSBConfig(){
   var rawUrl=(document.getElementById('cfg-sb-url').value||'').trim();
-  var key=(document.getElementById('cfg-sb-key').value||'').trim();
+  var rawKey=(document.getElementById('cfg-sb-key').value||'').trim();
   var el=document.getElementById('sb-status');
-  function setErr(msg){
-    el.style.cssText='background:var(--rdd);border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:8px 10px;font-size:12px;margin-bottom:12px';
-    el.textContent=msg;
-  }
-  function setOk(msg){
-    el.style.cssText='background:var(--tld);border:1px solid var(--tl);color:var(--tl);border-radius:8px;padding:8px 10px;font-size:12px;margin-bottom:12px';
-    el.textContent=msg;
-  }
-  function setInfo(msg){
-    el.style.cssText='background:var(--bg3);border:1px solid var(--b2);color:var(--t2);border-radius:8px;padding:8px 10px;font-size:12px;margin-bottom:12px';
-    el.textContent=msg;
-  }
-  if(!rawUrl){setErr('Ingresa la Project URL de Supabase');return;}
-  if(!key){setErr('Ingresa la Anon/Public Key');return;}
+
+  function setErr(msg){el.style.cssText='background:var(--rdd);border:1px solid var(--rd);color:var(--rd);border-radius:8px;padding:8px 10px;font-size:12px;margin-bottom:12px';el.textContent=msg;}
+  function setOk(msg){el.style.cssText='background:var(--tld);border:1px solid var(--tl);color:var(--tl);border-radius:8px;padding:8px 10px;font-size:12px;margin-bottom:12px';el.textContent=msg;}
+  function setInfo(msg){el.style.cssText='background:var(--bg3);border:1px solid var(--b2);color:var(--t2);border-radius:8px;padding:8px 10px;font-size:12px;margin-bottom:12px';el.textContent=msg;}
+
+  if(!rawUrl){setErr('Ingresa la Project URL');return;}
+  if(!rawKey){setErr('Ingresa la Anon Key (eyJ...)');return;}
   if(!rawUrl.startsWith('https://')){setErr('La URL debe empezar con https://');return;}
-  if(!rawUrl.includes('.supabase.co')){setErr('La URL debe contener .supabase.co');return;}
+  if(!rawUrl.includes('.supabase.co')){setErr('La URL debe contener .supabase.co — ej: https://abc.supabase.co');return;}
+
+  // Detectar si pegan la sb_publishable key en lugar de la anon JWT
+  if(rawKey.startsWith('sb_publishable_')||rawKey.startsWith('sb_secret_')){
+    setErr('Esa es la Publishable Key. Necesitas la Anon Key (eyJ...) Supabase > Settings > API > anon public');
+    return;
+  }
+  if(!rawKey.startsWith('eyJ')){
+    setErr('La Key parece incorrecta. Debe empezar con eyJ... Ve a Supabase > Settings > API > anon public');
+    return;
+  }
+
   var url=rawUrl.replace(/\/+$/,'');
-  setInfo('Probando conexion...');
+  var key=rawKey;
+  setInfo('Probando conexion con Supabase...');
+
   try{
-    // Test 1: ping the REST API health endpoint
-    var testUrl=url+'/rest/v1/?apikey='+encodeURIComponent(key);
-    var r=await fetch(testUrl,{
+    var r=await fetch(url+'/rest/v1/configuracion?id=eq.main&select=id',{
       method:'GET',
       headers:{
         'apikey':key,
         'Authorization':'Bearer '+key,
-        'Accept':'application/json',
-        'Content-Type':'application/json'
-      },
-      mode:'cors'
+        'Accept':'application/json'
+      }
     });
-    if(r.status===401){setErr('Key invalida - verifica la Anon Key en Settings > API');return;}
-    if(r.status===404){setErr('URL incorrecta - el proyecto no existe o esta pausado');return;}
-    if(!r.ok&&r.status!==200){setErr('Error HTTP '+r.status+' - verifica URL y Key');return;}
-    // Credenciales validas - guardar
+    if(r.status===401||r.status===403){setErr('Key invalida ('+r.status+') — ve a Settings > API > anon public y copia la clave eyJ...');return;}
+    if(r.status===404){setErr('Tabla no encontrada (404) — ejecuta el SQL del archivo supabase_schema.sql primero');return;}
+    if(!r.ok){
+      var body='';try{body=await r.text();}catch(e){}
+      setErr('Error '+r.status+': '+body.slice(0,120));return;
+    }
+    // Exito
     localStorage.setItem(SB_URL_KEY,url);
     localStorage.setItem(SB_KEY_KEY,key);
     SB_URL=url;SB_KEY=key;_sbReady=true;
-    setOk('Conectado a Supabase - sincronizando datos...');
-    toast('Conexion exitosa','ok');
+    setOk('Conectado — sincronizando datos...');
+    toast('Conectado a Supabase','ok');
     await syncFromSupabase();
     applyStoredTheme();
     if(document.getElementById('sc-catalog').classList.contains('active'))renderCatalog();
@@ -727,11 +732,11 @@ async function testAndSaveSBConfig(){
     if(document.getElementById('sc-history').classList.contains('active'))renderHistory();
     setOk('Conectado y sincronizado con Supabase');
   }catch(e){
-    var msg=e.message||'';
-    if(msg.includes('Failed to fetch')||msg.includes('NetworkError')||msg.includes('fetch')){
-      setErr('No se puede conectar. Verifica: 1) URL correcta  2) Proyecto Supabase activo (no pausado)  3) Tienes internet');
+    var msg=e.message||String(e);
+    if(msg.toLowerCase().includes('fetch')||msg.toLowerCase().includes('network')){
+      setErr('Sin conexion. Verifica: la URL sea correcta y el proyecto Supabase este activo (no pausado)');
     } else {
-      setErr('Error: '+msg);
+      setErr('Error: '+msg.slice(0,200));
     }
     toast('Error de conexion','err');
   }
