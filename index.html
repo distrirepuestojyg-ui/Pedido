@@ -763,10 +763,14 @@ async function testAndSaveSBConfig(){
       var body='';try{body=await r.text();}catch(e){}
       setErr('Error '+r.status+': '+body.slice(0,120));return;
     }
-    // Exito
+    // Exito — guardar en localStorage Y en config para que el backup lo incluya
     localStorage.setItem(SB_URL_KEY,url);
     localStorage.setItem(SB_KEY_KEY,key);
     SB_URL=url;SB_KEY=key;_sbReady=true;
+    // Guardar en cfg para que se propague a otros dispositivos via Supabase
+    var cfgNow=getCfg();cfgNow.sbUrl=url;cfgNow.sbKey=key;
+    saveCfg(cfgNow);
+    pushConfigToSB(cfgNow);
     setOk('Conectado — sincronizando datos...');
     toast('Conectado a Supabase','ok');
     await syncFromSupabase();
@@ -944,10 +948,34 @@ function ejecutarBorrado(){
 // ─── SUPABASE CONFIG ─────────────────────────────────────────────────────────
 // ⚠️ REEMPLAZA estos valores con los de tu proyecto Supabase:
 //    Dashboard → Settings → API → Project URL  y  anon public key
-var SB_URL = '';   // ej: 'https://xyzxyzxyz.supabase.co'
-var SB_KEY = '';   // ej: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+// ── CREDENCIALES SUPABASE ────────────────────────────────────────────────────
+// IMPORTANTE: El admin puede pegar aquí sus credenciales para que
+// funcionen en TODOS los dispositivos sin configurar nada.
+// Estas son la anon/public key — seguras para el frontend.
+var SB_URL_HARDCODED = 'https://vjbvyypjcazsjopsitii.supabase.co';  // URL del proyecto Supabase
+var SB_KEY_HARDCODED = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZqYnZ5eXBqY2F6c2pvcHNpdGlpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1MDU4NzcsImV4cCI6MjA5NDA4MTg3N30.xkvyX9ITZVSmKBhd1KzfkWwQWwRflF3JLtI_T4SS9Wk';  // Anon key
 
-var _sbReady = !!(SB_URL && SB_KEY);
+(function(){
+  // Prioridad: localStorage > config guardada > hardcodeado en el HTML
+  var url = localStorage.getItem('mrp_sb_url') || '';
+  var key = localStorage.getItem('mrp_sb_key') || '';
+  // Fallback 1: config guardada localmente (backup restaurado)
+  if(!url||!key){
+    try{
+      var cfgRaw=localStorage.getItem('mrp_cfg3');
+      if(cfgRaw){var cfg=JSON.parse(cfgRaw);url=cfg.sbUrl||url;key=cfg.sbKey||key;}
+    }catch(e){}
+  }
+  // Fallback 2: credenciales hardcodeadas en el HTML
+  if(!url||!key){url=SB_URL_HARDCODED;key=SB_KEY_HARDCODED;}
+  if(url&&key){
+    localStorage.setItem('mrp_sb_url',url);
+    localStorage.setItem('mrp_sb_key',key);
+  }
+  window.SB_URL = url;
+  window.SB_KEY = key;
+  window._sbReady = !!(url && key);
+})();
 
 // ── SUPABASE REST HELPERS ─────────────────────────────────────────────────────
 function sbHeaders(){
@@ -1003,7 +1031,17 @@ const DBK='mrp_db3', ORK='mrp_ord3', CFG_K='mrp_cfg3';
 // ─── MAPPERS ────────────────────────────────────────────────────────────────
 function mapProd(p){return{id:p.id,ref:p.ref||'',name:p.name,cat:p.cat,price:parseFloat(p.price)||0,stock:parseInt(p.stock)||0,min:parseInt(p.min_stock)||0,brand:p.brand||'',photo:p.photo||'',allowNoStock:!!p.allow_nostock};}
 function mapOrder(o){return{id:o.id,client:o.client,items:o.items,subtotal:parseFloat(o.subtotal)||0,ivaPct:parseFloat(o.iva_pct)||0,ivaNom:o.iva_nom||'IVA',tax:parseFloat(o.tax)||0,total:parseFloat(o.total)||0,date:o.date_str};}
-function mapCfgFromSB(sc,existing){return Object.assign({},existing,{empresa:sc.empresa||existing.empresa,nit:sc.nit||existing.nit,tel:sc.tel||existing.tel,dir:sc.dir||existing.dir,wa:sc.wa||existing.wa,iva:parseFloat(sc.iva)||existing.iva,ivaNom:sc.iva_nom||existing.ivaNom,cats:sc.cats||existing.cats,brands:sc.brands||existing.brands,bgTheme:sc.bg_theme||existing.bgTheme,logo:sc.logo||existing.logo,bannerImg:sc.banner_img||existing.bannerImg||'',adminUser:sc.admin_user||existing.adminUser,adminPass:sc.admin_pass||existing.adminPass});}
+function mapCfgFromSB(sc,existing){
+  var mapped=Object.assign({},existing,{empresa:sc.empresa||existing.empresa,nit:sc.nit||existing.nit,tel:sc.tel||existing.tel,dir:sc.dir||existing.dir,wa:sc.wa||existing.wa,iva:parseFloat(sc.iva)||existing.iva,ivaNom:sc.iva_nom||existing.ivaNom,cats:sc.cats||existing.cats,brands:sc.brands||existing.brands,bgTheme:sc.bg_theme||existing.bgTheme,logo:sc.logo||existing.logo,bannerImg:sc.banner_img||existing.bannerImg||'',adminUser:sc.admin_user||existing.adminUser,adminPass:sc.admin_pass||existing.adminPass,sbUrl:sc.sb_url||existing.sbUrl||'',sbKey:sc.sb_key||existing.sbKey||''});
+  // Si Supabase devuelve credenciales, activarlas automáticamente en este dispositivo
+  if(sc.sb_url&&sc.sb_key&&(!_sbReady||!SB_URL)){
+    SB_URL=sc.sb_url;SB_KEY=sc.sb_key;_sbReady=true;
+    localStorage.setItem('mrp_sb_url',sc.sb_url);
+    localStorage.setItem('mrp_sb_key',sc.sb_key);
+    console.log('Supabase credentials auto-loaded from config');
+  }
+  return mapped;
+}
 
 // ─── GETTERS — leen de Supabase si está listo, si no de localStorage ────────
 async function getDBAsync(){
@@ -1060,7 +1098,7 @@ async function deleteOrdersFromSB(ids){
 }
 async function pushConfigToSB(cfg){
   if(!_sbReady)return;
-  await sbUpsert('configuracion',{id:'main',empresa:cfg.empresa,nit:cfg.nit||null,tel:cfg.tel||null,dir:cfg.dir||null,wa:cfg.wa||null,iva:cfg.iva,iva_nom:cfg.ivaNom,cats:cfg.cats,brands:cfg.brands,bg_theme:cfg.bgTheme||'dark',logo:cfg.logo||null,banner_img:cfg.bannerImg||null,admin_user:cfg.adminUser||'admin',admin_pass:cfg.adminPass||'1234'},'id');
+  await sbUpsert('configuracion',{id:'main',empresa:cfg.empresa,nit:cfg.nit||null,tel:cfg.tel||null,dir:cfg.dir||null,wa:cfg.wa||null,iva:cfg.iva,iva_nom:cfg.ivaNom,cats:cfg.cats,brands:cfg.brands,bg_theme:cfg.bgTheme||'dark',logo:cfg.logo||null,banner_img:cfg.bannerImg||null,admin_user:cfg.adminUser||'admin',admin_pass:cfg.adminPass||'1234',sb_url:cfg.sbUrl||SB_URL||null,sb_key:cfg.sbKey||SB_KEY||null},'id');
 }
 
 // ─── SYNC COMPLETO — trae todo de Supabase y actualiza caché ────────────────
@@ -2150,12 +2188,8 @@ function toast(msg,type=''){
 
 // ─── INIT ────────────────────────────────────────────────────────────────────
 (function(){
-  // Cargar credenciales SB guardadas — auto-sync en cada visita
-  var sbUrl=localStorage.getItem('mrp_sb_url')||'';
-  var sbKey=localStorage.getItem('mrp_sb_key')||'';
-  if(sbUrl&&sbKey){SB_URL=sbUrl;SB_KEY=sbKey;_sbReady=true;}
   applyStoredTheme();
-  updateLoginScreen(); // Nombre empresa + banner en pantalla de inicio
+  updateLoginScreen();
   var r=detectRole();
   if(r){role=r;boot();}
 })();
