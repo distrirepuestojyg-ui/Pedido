@@ -881,6 +881,9 @@ async function sbPatch(table,filter,data){
 
 async function syncFromSupabase(){
   if(!_sbReady)return;
+  // Indicador discreto en topbar
+  var tbBrand=document.getElementById('tb-brand-name');
+  var origText=tbBrand?tbBrand.textContent:'';
   try{
     // Productos
     var prods=await sbGet('productos','?order=id.asc');
@@ -1052,9 +1055,52 @@ function boot(){
   pill.textContent=role==='admin'?'⚙ Admin':'🛒 Cliente';
   pill.className='rpill '+(role==='admin'?'rp-a':'rp-c');
   applyStoredTheme();buildNav();goTo('catalog');
-  // Sincronizar desde Supabase en segundo plano
-  if(_sbReady){syncFromSupabase().then(function(){applyStoredTheme();renderCatalog();});}
+  // Sincronizar desde Supabase al entrar
+  if(_sbReady){
+    syncFromSupabase().then(function(){
+      applyStoredTheme();
+      refreshCurrentScreen();
+    });
+    startAutoSync();
+  }
 }
+
+// ─── AUTO-SYNC ────────────────────────────────────────────────────────────────
+var _syncInterval=null;
+var _syncInProgress=false;
+
+function startAutoSync(){
+  // Limpiar intervalo anterior si existe
+  if(_syncInterval)clearInterval(_syncInterval);
+  // Sincronizar cada 30 segundos
+  _syncInterval=setInterval(function(){
+    if(_sbReady&&!_syncInProgress&&document.visibilityState!=='hidden'){
+      _syncInProgress=true;
+      syncFromSupabase().then(function(){
+        refreshCurrentScreen();
+        _syncInProgress=false;
+      }).catch(function(){_syncInProgress=false;});
+    }
+  },30000);
+}
+
+function refreshCurrentScreen(){
+  // Refrescar la pantalla activa sin saltar a otra
+  if(document.getElementById('sc-catalog').classList.contains('active'))renderCatalog();
+  else if(document.getElementById('sc-inventory')&&document.getElementById('sc-inventory').classList.contains('active'))renderInventory();
+  else if(document.getElementById('sc-history')&&document.getElementById('sc-history').classList.contains('active'))renderHistory();
+}
+
+// Sincronizar al volver a la pestaña/app
+document.addEventListener('visibilitychange',function(){
+  if(document.visibilityState==='visible'&&_sbReady&&!_syncInProgress){
+    _syncInProgress=true;
+    syncFromSupabase().then(function(){
+      refreshCurrentScreen();
+      _syncInProgress=false;
+    }).catch(function(){_syncInProgress=false;});
+  }
+});
 
 // ─── NAV ─────────────────────────────────────────────────────────────────────
 const NAV_CLIENT=[
@@ -1986,12 +2032,15 @@ function toast(msg,type=''){
 
 // ─── INIT ────────────────────────────────────────────────────────────────────
 (function(){
-  // Cargar credenciales SB guardadas
+  // Cargar credenciales SB guardadas — auto-sync en cada visita
   var sbUrl=localStorage.getItem('mrp_sb_url')||'';
   var sbKey=localStorage.getItem('mrp_sb_key')||'';
   if(sbUrl&&sbKey){SB_URL=sbUrl;SB_KEY=sbKey;_sbReady=true;}
   applyStoredTheme();
-  var r=detectRole();if(r){role=r;boot();}
+  var r=detectRole();
+  if(r){role=r;boot();}
+  // Si es acceso directo por ?rol= y SB está listo, boot() ya llama startAutoSync
+  // Si es pantalla de login, arrancar sync solo cuando entre
 })();
 </script>
 </body>
