@@ -380,6 +380,7 @@ button{cursor:pointer;border:none;background:none}
   <div class="topbar">
     <div class="tb-brand" style="display:flex;align-items:center;gap:8px;flex:1;min-width:0"><div id="tb-logo-wrap" style="width:26px;height:26px;border-radius:6px;overflow:hidden;flex-shrink:0;display:none"></div><span id="tb-brand-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Moto<span style="color:var(--or)">Repuestos</span></span></div>
     <span id="rpill" class="rpill"></span>
+    <span id="realtime-dot" title="Tiempo real: desconectado" style="width:7px;height:7px;border-radius:50%;background:var(--t3);flex-shrink:0;transition:background .4s" ></span>
     <button class="tb-exit" onclick="logout()">Salir</button>
   </div>
 
@@ -1211,44 +1212,124 @@ function boot(){
       applyStoredTheme();
       refreshCurrentScreen();
     });
-    startAutoSync();
+    startAutoSync(); // inicia WebSocket Realtime + polling fallback
   }
 }
 
 // ─── AUTO-SYNC ────────────────────────────────────────────────────────────────
-var _syncInterval=null;
 var _syncInProgress=false;
+var _realtimeWS=null;
+var _realtimeRetry=null;
+var _syncInterval=null;  // fallback polling
 
+// ─── REALTIME VIA SUPABASE WEBSOCKET ────────────────────────────────────────
 function startAutoSync(){
-  // Limpiar intervalo anterior si existe
+  if(!_sbReady)return;
+  startRealtime();
+  // Fallback polling cada 15s por si WS falla o está cerrado
   if(_syncInterval)clearInterval(_syncInterval);
-  // Sincronizar cada 30 segundos
   _syncInterval=setInterval(function(){
-    if(_sbReady&&!_syncInProgress&&document.visibilityState!=='hidden'){
-      _syncInProgress=true;
-      syncFromSupabase().then(function(){
-        refreshCurrentScreen();
-        _syncInProgress=false;
-      }).catch(function(){_syncInProgress=false;});
+    if(_sbReady&&!_syncInProgress&&(!_realtimeWS||_realtimeWS.readyState!==1)){
+      doSync();
     }
-  },30000);
+  },15000);
+}
+
+function doSync(){
+  if(_syncInProgress)return;
+  _syncInProgress=true;
+  syncFromSupabase().then(function(){
+    refreshCurrentScreen();
+    _syncInProgress=false;
+  }).catch(function(){_syncInProgress=false;});
 }
 
 function refreshCurrentScreen(){
-  // Refrescar la pantalla activa sin saltar a otra
   if(document.getElementById('sc-catalog').classList.contains('active'))renderCatalog();
   else if(document.getElementById('sc-inventory')&&document.getElementById('sc-inventory').classList.contains('active'))renderInventory();
   else if(document.getElementById('sc-history')&&document.getElementById('sc-history').classList.contains('active'))renderHistory();
 }
 
-// Sincronizar al volver a la pestaña/app
+function startRealtime(){
+  if(!_sbReady)return;
+  if(_realtimeWS&&_realtimeWS.readyState===1)return; // ya conectado
+  if(_realtimeRetry){clearTimeout(_realtimeRetry);_realtimeRetry=null;}
+
+  var wsUrl=SB_URL.replace('https://','wss://').replace('http://','ws://')
+    +'/realtime/v1/websocket?apikey='+encodeURIComponent(SB_KEY)+'&vsn=1.0.0';
+
+  try{
+    var ws=new WebSocket(wsUrl);
+    _realtimeWS=ws;
+
+    ws.onopen=function(){
+      console.log('Supabase Realtime conectado');
+      // Unirse a los canales de las 3 tablas
+      var joinMsg=function(topic){
+        return JSON.stringify({topic:topic,event:'phx_join',payload:{config:{broadcast:{self:false},postgres_changes:[{event:'*',schema:'public'}]}},ref:'1'});
+      };
+      ws.send(joinMsg('realtime:public:productos'));
+      ws.send(joinMsg('realtime:public:pedidos'));
+      ws.send(joinMsg('realtime:public:configuracion'));
+      showSyncDot(true);
+    };
+
+    ws.onmessage=function(e){
+      try{
+        var msg=JSON.parse(e.data);
+        // Heartbeat reply
+        if(msg.event==='phx_reply'&&msg.payload&&msg.payload.status==='ok')return;
+        // Cambio en la BD
+        if(msg.event==='postgres_changes'&&msg.payload&&msg.payload.data){
+          var tbl=msg.payload.data.table||'';
+          console.log('Realtime change:',tbl,msg.payload.data.type);
+          if(!_syncInProgress){
+            _syncInProgress=true;
+            syncFromSupabase().then(function(){
+              refreshCurrentScreen();
+              _syncInProgress=false;
+              showSyncDot(true);
+            }).catch(function(){_syncInProgress=false;});
+          }
+        }
+        // Keepalive heartbeat
+        if(msg.event==='heartbeat'){
+          ws.send(JSON.stringify({topic:'phoenix',event:'heartbeat',payload:{},ref:'hb'}));
+        }
+      }catch(err){}
+    };
+
+    ws.onclose=function(ev){
+      console.log('Realtime desconectado, reconectando en 5s...');
+      showSyncDot(false);
+      _realtimeWS=null;
+      // Reconectar automáticamente
+      _realtimeRetry=setTimeout(function(){
+        if(_sbReady)startRealtime();
+      },5000);
+    };
+
+    ws.onerror=function(){
+      ws.close();
+    };
+
+  }catch(err){
+    console.warn('Realtime no disponible, usando polling');
+  }
+}
+
+function showSyncDot(connected){
+  var dot=document.getElementById('realtime-dot');
+  if(!dot)return;
+  dot.style.background=connected?'var(--tl)':'var(--t3)';
+  dot.title=connected?'Tiempo real: conectado':'Tiempo real: reconectando...';
+}
+
+// Reconectar al volver a la pestaña
 document.addEventListener('visibilitychange',function(){
-  if(document.visibilityState==='visible'&&_sbReady&&!_syncInProgress){
-    _syncInProgress=true;
-    syncFromSupabase().then(function(){
-      refreshCurrentScreen();
-      _syncInProgress=false;
-    }).catch(function(){_syncInProgress=false;});
+  if(document.visibilityState==='visible'&&_sbReady){
+    if(!_realtimeWS||_realtimeWS.readyState!==1)startRealtime();
+    doSync();
   }
 });
 
