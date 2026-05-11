@@ -811,16 +811,96 @@ function setCfgTab(idx){
 // ─── BANNER PUBLICIDAD ────────────────────────────────────────────────────────
 var _pendingBanner='';
 
-function handleBannerImg(inp){
+async function handleBannerImg(inp){
   var f=inp.files[0];if(!f)return;
+  // Mostrar preview local inmediatamente
   var reader=new FileReader();
   reader.onload=function(e){
-    _pendingBanner=e.target.result;
-    showBannerPreview(_pendingBanner);
-    updateLoginBanner(_pendingBanner);
+    showBannerPreview(e.target.result);
+    updateLoginBanner(e.target.result);
   };
   reader.readAsDataURL(f);
+  // Subir a Supabase Storage si está disponible
+  if(_sbReady){
+    var btn=document.getElementById('banner-remove-btn');
+    var hint=document.getElementById('banner-hint');
+    if(hint)hint.textContent='Subiendo imagen...';
+    var url=await uploadBannerToStorage(f);
+    if(url){
+      _pendingBanner=url; // guardar URL, no base64
+      showBannerPreview(url);
+      updateLoginBanner(url);
+      if(hint)hint.textContent='🖼️ Imagen subida correctamente';
+      toast('Banner subido a Supabase Storage','ok');
+    } else {
+      // Fallback: guardar base64 si Storage falla
+      var r2=new FileReader();
+      r2.onload=function(e2){_pendingBanner=e2.target.result;};
+      r2.readAsDataURL(f);
+      toast('Storage no disponible — guardando localmente','err');
+    }
+  } else {
+    // Sin Supabase: usar base64
+    var r3=new FileReader();
+    r3.onload=function(e3){_pendingBanner=e3.target.result;showBannerPreview(e3.target.result);updateLoginBanner(e3.target.result);};
+    r3.readAsDataURL(f);
+  }
 }
+
+async function uploadBannerToStorage(file){
+  if(!_sbReady)return null;
+  try{
+    // Supabase Storage REST API
+    var ext=file.name.split('.').pop()||'jpg';
+    var path='banner/banner_'+Date.now()+'.'+ext;
+    var storageUrl=SB_URL+'/storage/v1/object/imagenes/'+path;
+    var r=await sbFetch(storageUrl,{
+      method:'POST',
+      headers:{
+        'apikey':SB_KEY,
+        'Authorization':'Bearer '+SB_KEY,
+        'Content-Type':file.type||'image/jpeg',
+        'x-upsert':'true'
+      },
+      body:file
+    },20000);
+    if(!r.ok){
+      var err=await r.text();
+      console.warn('Storage upload error:',r.status,err);
+      return null;
+    }
+    // URL pública
+    return SB_URL+'/storage/v1/object/public/imagenes/'+path;
+  }catch(e){
+    console.warn('Storage upload failed:',e.message);
+    return null;
+  }
+}
+
+async function uploadLogoToStorage(file){
+  if(!_sbReady)return null;
+  try{
+    var ext=file.name.split('.').pop()||'png';
+    var path='logos/logo_'+Date.now()+'.'+ext;
+    var storageUrl=SB_URL+'/storage/v1/object/imagenes/'+path;
+    var r=await sbFetch(storageUrl,{
+      method:'POST',
+      headers:{
+        'apikey':SB_KEY,
+        'Authorization':'Bearer '+SB_KEY,
+        'Content-Type':file.type||'image/png',
+        'x-upsert':'true'
+      },
+      body:file
+    },20000);
+    if(!r.ok)return null;
+    return SB_URL+'/storage/v1/object/public/imagenes/'+path;
+  }catch(e){
+    console.warn('Logo upload failed:',e.message);
+    return null;
+  }
+}
+
 function removeBanner(){
   _pendingBanner='';
   showBannerPreview('');
@@ -1167,7 +1247,11 @@ async function syncFromSupabase(){
     var merged=mapCfgFromSB(results[2].value[0],getCfg());
     localStorage.setItem(CFG_K,JSON.stringify(merged));ok++;
   }
-  if(ok>0)console.log('Supabase sync OK ('+ok+'/3)');
+  if(ok>0){
+    console.log('Supabase sync OK ('+ok+'/3)');
+    // Actualizar banner y nombre empresa en pantalla de login con datos frescos
+    updateLoginScreen();
+  }
 }
 
 const SEED=[
@@ -2068,11 +2152,28 @@ function liveUpdateBrand(val){applyBrandName(val||'MotoRepuestos Pro');}
 
 var _pendingLogo='';
 
-function handleLogo(inp){
+async function handleLogo(inp){
   var f=inp.files[0];if(!f)return;
-  var reader=new FileReader();
-  reader.onload=function(e){_pendingLogo=e.target.result;showLogoPreview(_pendingLogo);applyLogo(_pendingLogo);};
-  reader.readAsDataURL(f);
+  // Preview local inmediato
+  var r=new FileReader();
+  r.onload=function(e){showLogoPreview(e.target.result);applyLogo(e.target.result);};
+  r.readAsDataURL(f);
+  if(_sbReady){
+    var url=await uploadLogoToStorage(f);
+    if(url){
+      _pendingLogo=url;
+      showLogoPreview(url);applyLogo(url);
+      toast('Logo subido a Supabase Storage','ok');
+    } else {
+      var r2=new FileReader();
+      r2.onload=function(e2){_pendingLogo=e2.target.result;};
+      r2.readAsDataURL(f);
+    }
+  } else {
+    var r3=new FileReader();
+    r3.onload=function(e3){_pendingLogo=e3.target.result;showLogoPreview(e3.target.result);applyLogo(e3.target.result);};
+    r3.readAsDataURL(f);
+  }
 }
 function removeLogo(){
   _pendingLogo='';showLogoPreview('');applyLogo('');
