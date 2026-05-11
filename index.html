@@ -100,6 +100,24 @@ button{cursor:pointer;border:none;background:none}
 .cclient input.field-error{border-color:var(--rd)!important;animation:shake .35s}
 .cname-error{font-size:11px;color:var(--rd);padding:4px 14px 0;display:none}
 .cname-error.visible{display:block}
+
+/* ── CONFIG TABS ── */
+.cfg-tabs{display:flex;gap:0;padding:0 12px;border-bottom:1px solid var(--b);flex-shrink:0;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.cfg-tabs::-webkit-scrollbar{display:none}
+.cfg-tab{padding:12px 14px;font-size:12px;font-weight:500;color:var(--t3);white-space:nowrap;cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;flex-shrink:0}
+.cfg-tab.active{color:var(--or);border-bottom-color:var(--or)}
+.cfg-tab:active{opacity:.7}
+.cfg-page{display:none;flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.cfg-page.active{display:block}
+
+/* ── LOGIN BANNER ── */
+.login-banner{width:100%;max-width:420px;border-radius:var(--r2);overflow:hidden;position:relative;flex-shrink:0}
+.login-banner img{width:100%;max-height:180px;object-fit:cover;display:block}
+.login-banner-placeholder{display:none}
+.login-banner.no-img .login-banner-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 20px;background:linear-gradient(135deg,var(--or) 0%,var(--or2) 100%);text-align:center;min-height:120px}
+.bp-title{font-size:20px;font-weight:700;color:#fff;margin-bottom:4px}
+.bp-sub{font-size:13px;color:rgba(255,255,255,.8);margin-bottom:10px}
+.bp-badge{background:rgba(255,255,255,.2);color:#fff;font-size:11px;font-weight:600;padding:4px 14px;border-radius:99px;border:1px solid rgba(255,255,255,.35)}
 /* ── MOBILE HEIGHT FIX ── */
 @supports (-webkit-touch-callout: none){
   /* iOS Safari */
@@ -333,9 +351,18 @@ button{cursor:pointer;border:none;background:none}
 
 <!-- LOGIN -->
 <div id="login-screen">
+  <!-- Banner publicitario -->
+  <div class="login-banner" id="login-banner" style="display:none">
+    <img id="login-banner-img" src="" alt="">
+    <div class="login-banner-placeholder" id="login-banner-ph">
+      <div class="bp-title" id="login-banner-title">Bienvenido</div>
+      <div class="bp-sub" id="login-banner-sub">Los mejores repuestos al mejor precio</div>
+      <div class="bp-badge" id="login-banner-empresa">MotoRepuestos</div>
+    </div>
+  </div>
   <div class="ll">
-    <h1>Moto<span>Repuestos</span></h1>
-    <p>Sistema de pedidos e inventario</p>
+    <h1 id="login-empresa-h1">Moto<span>Repuestos</span></h1>
+    <p id="login-empresa-sub">Sistema de pedidos e inventario</p>
   </div>
   <div class="lcards">
     <div class="lcard" onclick="enterAs('client')">
@@ -405,130 +432,147 @@ button{cursor:pointer;border:none;background:none}
 
   <!-- CONFIG (admin) -->
   <div class="screen" id="sc-config">
-    <div class="scr" style="flex:1">
-      <div class="cfg-body">
-        <div class="cfg-section">
-          <div class="cfg-title">Configuración de impuestos</div>
-          <div class="cfg-row">
-            <span class="cfg-lbl">IVA (%)</span>
-            <input class="cfg-inp" type="number" id="cfg-iva" min="0" max="100" step="0.1" placeholder="19">
-          </div>
-          <div class="cfg-row">
-            <span class="cfg-lbl">Nombre del impuesto</span>
-            <input class="cfg-inp" type="text" id="cfg-iva-nom" placeholder="IVA" style="width:140px;text-align:left">
-          </div>
-        </div>
-        <div class="cfg-section">
-          <div class="cfg-title">WhatsApp administrador</div>
-          <div class="cfg-row">
-            <span class="cfg-lbl">Número (con código país)</span>
-            <input class="cfg-inp" type="tel" id="cfg-wa" placeholder="573001234567" style="width:160px;text-align:left">
-          </div>
-          <div style="font-size:11px;color:var(--t3);margin-top:-6px;margin-bottom:10px">Ej: 573001234567 (sin + ni espacios)</div>
-        </div>
-        <!-- EMPRESA -->
-        <div class="cfg-section">
-          <div class="cfg-title">🏪 Empresa</div>
-          <div style="margin-bottom:8px">
-            <div style="font-size:11px;color:var(--t2);margin-bottom:6px;font-weight:500">Logo de la empresa</div>
-            <div class="logo-zone" id="logo-zone">
-              <input type="file" accept="image/*" id="logo-file-inp" onchange="handleLogo(this)">
-              <img id="logo-preview">
-              <div id="logo-hint" class="logo-hint">📷 Toca para subir logo (PNG, JPG, SVG)</div>
+    <!-- Config tabs -->
+    <div class="cfg-tabs" id="cfg-tabs">
+      <div class="cfg-tab active" onclick="setCfgTab(0)">🏪 Empresa</div>
+      <div class="cfg-tab" onclick="setCfgTab(1)">🏷️ Catálogo</div>
+      <div class="cfg-tab" onclick="setCfgTab(2)">🛠️ Sistema</div>
+      <div class="cfg-tab" onclick="setCfgTab(3)">🔗 Supabase</div>
+    </div>
+    <div style="flex:1;overflow:hidden;display:flex;flex-direction:column;min-height:0">
+
+      <!-- PAGE 0: Empresa -->
+      <div class="cfg-page active" id="cfg-page-0">
+        <div class="cfg-body">
+          <div class="cfg-section">
+            <div class="cfg-title">🏪 Empresa</div>
+            <div style="margin-bottom:8px">
+              <div style="font-size:11px;color:var(--t2);margin-bottom:6px;font-weight:500">Logo de la empresa</div>
+              <div class="logo-zone" id="logo-zone">
+                <input type="file" accept="image/*" id="logo-file-inp" onchange="handleLogo(this)">
+                <img id="logo-preview">
+                <div id="logo-hint" class="logo-hint">📷 Toca para subir logo (PNG, JPG, SVG)</div>
+              </div>
+              <button id="logo-remove-btn" onclick="removeLogo()" style="display:none;font-size:11px;color:var(--rd);border:1px solid var(--rd);border-radius:8px;padding:4px 10px;background:none;cursor:pointer;margin-bottom:4px">✕ Quitar logo</button>
             </div>
-            <button id="logo-remove-btn" onclick="removeLogo()" style="display:none;font-size:11px;color:var(--rd);border:1px solid var(--rd);border-radius:8px;padding:4px 10px;background:none;cursor:pointer;margin-bottom:4px">✕ Quitar logo</button>
+            <div class="cfg-row"><span class="cfg-lbl">Nombre empresa</span>
+              <input class="cfg-inp" type="text" id="cfg-empresa" placeholder="MotoRepuestos" style="width:160px;text-align:left" oninput="liveUpdateBrand(this.value)">
+            </div>
+            <div class="cfg-row"><span class="cfg-lbl">NIT / RUT</span>
+              <input class="cfg-inp" type="text" id="cfg-nit" placeholder="900.123.456-1" style="width:160px;text-align:left">
+            </div>
+            <div class="cfg-row"><span class="cfg-lbl">Teléfono</span>
+              <input class="cfg-inp" type="tel" id="cfg-tel" placeholder="3001234567" style="width:160px;text-align:left">
+            </div>
           </div>
-          <div class="cfg-row">
-            <span class="cfg-lbl">Nombre empresa</span>
-            <input class="cfg-inp" type="text" id="cfg-empresa" placeholder="MotoRepuestos" style="width:160px;text-align:left" oninput="liveUpdateBrand(this.value)">
+          <div class="cfg-section">
+            <div class="cfg-title">💬 WhatsApp administrador</div>
+            <div class="cfg-row"><span class="cfg-lbl">Número</span>
+              <input class="cfg-inp" type="tel" id="cfg-wa" placeholder="573001234567" style="width:160px;text-align:left">
+            </div>
+            <div style="font-size:11px;color:var(--t3);margin-top:-4px">Con código de país, sin + ni espacios</div>
           </div>
-          <div class="cfg-row">
-            <span class="cfg-lbl">NIT / RUT</span>
-            <input class="cfg-inp" type="text" id="cfg-nit" placeholder="900.123.456-1" style="width:160px;text-align:left">
+          <div class="cfg-section">
+            <div class="cfg-title">🎨 Banner de la pantalla de inicio</div>
+            <div style="font-size:12px;color:var(--t2);margin-bottom:10px;line-height:1.5">Esta imagen aparece en la pantalla de inicio antes de entrar al catálogo.</div>
+            <div class="logo-zone" id="banner-zone">
+              <input type="file" accept="image/*" id="banner-file-inp" onchange="handleBannerImg(this)">
+              <img id="banner-preview">
+              <div id="banner-hint" class="logo-hint">🖼️ Toca para subir imagen del banner</div>
+            </div>
+            <button id="banner-remove-btn" onclick="removeBanner()" style="display:none;font-size:11px;color:var(--rd);border:1px solid var(--rd);border-radius:8px;padding:4px 10px;background:none;cursor:pointer;margin-top:4px">✕ Quitar banner</button>
           </div>
-          <div class="cfg-row">
-            <span class="cfg-lbl">Teléfono empresa</span>
-            <input class="cfg-inp" type="tel" id="cfg-tel" placeholder="3001234567" style="width:160px;text-align:left">
+          <div class="cfg-section">
+            <div class="cfg-title">🔐 Credenciales de acceso</div>
+            <div class="cfg-row"><span class="cfg-lbl">Usuario</span>
+              <input class="cfg-inp" type="text" id="cfg-admin-user" placeholder="admin" style="text-align:left;width:140px" autocomplete="off">
+            </div>
+            <div class="cfg-row"><span class="cfg-lbl">Contraseña</span>
+              <input class="cfg-inp" type="password" id="cfg-admin-pass" placeholder="••••••" style="text-align:left;width:140px" autocomplete="new-password">
+            </div>
           </div>
+          <button class="cfg-save" onclick="saveConfig()">💾 Guardar configuración</button>
         </div>
-
-        <!-- CATEGORÍAS -->
-        <div class="cfg-section">
-          <div class="cfg-title">🏷️ Categorías de productos</div>
-          <div class="lm-list" id="cats-list"></div>
-          <div class="lm-add-row">
-            <input class="lm-inp" id="new-cat-inp" placeholder="Nueva categoría..." onkeydown="if(event.key==='Enter')addListItem('cats','new-cat-inp')">
-            <button class="lm-add-btn" onclick="addListItem('cats','new-cat-inp')">+ Agregar</button>
-          </div>
-        </div>
-
-        <!-- MARCAS -->
-        <div class="cfg-section">
-          <div class="cfg-title">🔖 Marcas / Fabricantes</div>
-          <div class="lm-list" id="brands-list"></div>
-          <div class="lm-add-row">
-            <input class="lm-inp" id="new-brand-inp" placeholder="Nueva marca..." onkeydown="if(event.key==='Enter')addListItem('brands','new-brand-inp')">
-            <button class="lm-add-btn" onclick="addListItem('brands','new-brand-inp')">+ Agregar</button>
-          </div>
-        </div>
-
-        <!-- CREDENCIALES ADMIN -->
-        <div class="cfg-section">
-          <div class="cfg-title">🔐 Credenciales de administrador</div>
-          <div class="cfg-row"><span class="cfg-lbl">Usuario</span>
-            <input class="cfg-inp" type="text" id="cfg-admin-user" placeholder="admin" style="text-align:left;width:140px" autocomplete="off">
-          </div>
-          <div class="cfg-row"><span class="cfg-lbl">Contraseña</span>
-            <input class="cfg-inp" type="password" id="cfg-admin-pass" placeholder="••••••" style="text-align:left;width:140px" autocomplete="new-password">
-          </div>
-          <div style="font-size:11px;color:var(--t3);margin-top:-4px">Por defecto: usuario <strong style="color:var(--t2)">admin</strong> / contraseña <strong style="color:var(--t2)">1234</strong></div>
-        </div>
-
-        <!-- FONDO -->
-        <div class="cfg-section">
-          <div class="cfg-title">🎨 Color de fondo</div>
-          <div class="fondo-grid" id="fondo-grid"></div>
-          <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
-            <input type="color" id="cfg-bg-custom" value="#0f0f0f" style="width:44px;height:36px;border-radius:8px;border:1px solid var(--b2);cursor:pointer;padding:2px;background:var(--bg3)" oninput="applyCustomBg(this.value)">
-            <span style="font-size:12px;color:var(--t2)">Color personalizado</span>
-          </div>
-        </div>
-
-        <!-- BORRAR DATOS -->
-        <div class="cfg-section">
-          <div class="cfg-title">🗑️ Limpiar datos por rango de fecha</div>
-          <p style="font-size:12px;color:var(--t2);margin-bottom:12px;line-height:1.6">Elimina pedidos registrados en el rango seleccionado. Los productos e inventario <strong style="color:var(--t)">no se eliminan</strong>.</p>
-          <div class="del-range-row">
-            <input type="date" id="del-desde" onchange="previsualizarBorrado()">
-            <span class="del-range-sep">hasta</span>
-            <input type="date" id="del-hasta" onchange="previsualizarBorrado()">
-          </div>
-          <div class="del-preview" id="del-preview"></div>
-          <button class="del-btn" id="del-btn" onclick="ejecutarBorrado()" disabled>
-            🗑️ Eliminar pedidos del rango
-          </button>
-        </div>
-
-        <!-- SUPABASE -->
-        <div class="cfg-section" id="sb-section">
-          <div class="cfg-title">🔗 Conexión Supabase</div>
-          <div id="sb-status" style="font-size:12px;margin-bottom:12px;padding:8px 10px;border-radius:8px;background:var(--bg3);border:1px solid var(--b)">
-            ⚪ Sin configurar — funciona en modo local (este dispositivo)
-          </div>
-          <div style="margin-bottom:10px">
-            <div style="font-size:11px;color:var(--t2);margin-bottom:5px;font-weight:500">Project URL</div>
-            <input class="fi" type="url" id="cfg-sb-url" placeholder="https://xyzxyz.supabase.co" style="font-size:13px" oninput="updateSBStatus()">
-          </div>
-          <div style="margin-bottom:10px">
-            <div style="font-size:11px;color:var(--t2);margin-bottom:5px;font-weight:500">Anon / Public Key</div>
-            <input class="fi" type="text" id="cfg-sb-key" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." style="font-size:11px;word-break:break-all" oninput="updateSBStatus()">
-          </div>
-          <button class="iab teal" style="width:100%;margin-bottom:8px;padding:11px" onclick="testAndSaveSBConfig()">🔌 Conectar y sincronizar</button>
-          <div style="font-size:11px;color:var(--t3);line-height:1.7">Obtén estos valores en:<br><strong style="color:var(--t2)">Supabase Dashboard → Settings → API</strong></div>
-        </div>
-
-        <button class="cfg-save" onclick="saveConfig()">💾 Guardar configuración</button>
       </div>
+
+      <!-- PAGE 1: Catálogo -->
+      <div class="cfg-page" id="cfg-page-1">
+        <div class="cfg-body">
+          <div class="cfg-section">
+            <div class="cfg-title">🧾 Impuestos</div>
+            <div class="cfg-row"><span class="cfg-lbl">IVA (%)</span>
+              <input class="cfg-inp" type="number" id="cfg-iva" min="0" max="100" step="0.1" placeholder="19">
+            </div>
+            <div class="cfg-row"><span class="cfg-lbl">Nombre del impuesto</span>
+              <input class="cfg-inp" type="text" id="cfg-iva-nom" placeholder="IVA" style="width:140px;text-align:left">
+            </div>
+          </div>
+          <div class="cfg-section">
+            <div class="cfg-title">🏷️ Categorías de productos</div>
+            <div class="lm-list" id="cats-list"></div>
+            <div class="lm-add-row">
+              <input class="lm-inp" id="new-cat-inp" placeholder="Nueva categoría..." onkeydown="if(event.key==='Enter')addListItem('cats','new-cat-inp')">
+              <button class="lm-add-btn" onclick="addListItem('cats','new-cat-inp')">+ Agregar</button>
+            </div>
+          </div>
+          <div class="cfg-section">
+            <div class="cfg-title">🔖 Marcas / Fabricantes</div>
+            <div class="lm-list" id="brands-list"></div>
+            <div class="lm-add-row">
+              <input class="lm-inp" id="new-brand-inp" placeholder="Nueva marca..." onkeydown="if(event.key==='Enter')addListItem('brands','new-brand-inp')">
+              <button class="lm-add-btn" onclick="addListItem('brands','new-brand-inp')">+ Agregar</button>
+            </div>
+          </div>
+          <button class="cfg-save" onclick="saveConfig()">💾 Guardar configuración</button>
+        </div>
+      </div>
+
+      <!-- PAGE 2: Sistema -->
+      <div class="cfg-page" id="cfg-page-2">
+        <div class="cfg-body">
+          <div class="cfg-section">
+            <div class="cfg-title">🎨 Color de fondo</div>
+            <div class="fondo-grid" id="fondo-grid"></div>
+            <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
+              <input type="color" id="cfg-bg-custom" value="#0f0f0f" style="width:44px;height:36px;border-radius:8px;border:1px solid var(--b2);cursor:pointer;padding:2px;background:var(--bg3)" oninput="applyCustomBg(this.value)">
+              <span style="font-size:12px;color:var(--t2)">Color personalizado</span>
+            </div>
+          </div>
+          <div class="cfg-section">
+            <div class="cfg-title">🗑️ Limpiar datos por rango de fecha</div>
+            <p style="font-size:12px;color:var(--t2);margin-bottom:12px;line-height:1.6">Elimina pedidos en el rango seleccionado. El inventario <strong style="color:var(--t)">no se elimina</strong>.</p>
+            <div class="del-range-row">
+              <input type="date" id="del-desde" onchange="previsualizarBorrado()">
+              <span class="del-range-sep">hasta</span>
+              <input type="date" id="del-hasta" onchange="previsualizarBorrado()">
+            </div>
+            <div class="del-preview" id="del-preview"></div>
+            <button class="del-btn" id="del-btn" onclick="ejecutarBorrado()" disabled>🗑️ Eliminar pedidos del rango</button>
+          </div>
+          <button class="cfg-save" onclick="saveConfig()">💾 Guardar configuración</button>
+        </div>
+      </div>
+
+      <!-- PAGE 3: Supabase -->
+      <div class="cfg-page" id="cfg-page-3">
+        <div class="cfg-body">
+          <div class="cfg-section" id="sb-section">
+            <div class="cfg-title">🔗 Conexión Supabase</div>
+            <div id="sb-status" style="font-size:12px;margin-bottom:12px;padding:8px 10px;border-radius:8px;background:var(--bg3);border:1px solid var(--b)">⚪ Sin configurar — funciona en modo local</div>
+            <div style="margin-bottom:10px">
+              <div style="font-size:11px;color:var(--t2);margin-bottom:5px;font-weight:500">Project URL</div>
+              <input class="fi" type="url" id="cfg-sb-url" placeholder="https://xyzxyz.supabase.co" style="font-size:13px" oninput="updateSBStatus()">
+            </div>
+            <div style="margin-bottom:10px">
+              <div style="font-size:11px;color:var(--t2);margin-bottom:5px;font-weight:500">Anon / Public Key</div>
+              <input class="fi" type="text" id="cfg-sb-key" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." style="font-size:11px" oninput="updateSBStatus()">
+            </div>
+            <button class="iab teal" style="width:100%;margin-bottom:8px;padding:11px" onclick="testAndSaveSBConfig()">🔌 Conectar y sincronizar</button>
+            <div style="font-size:11px;color:var(--t3);line-height:1.7">Obtén estos valores en:<br><strong style="color:var(--t2)">Supabase Dashboard → Settings → API</strong></div>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -742,6 +786,81 @@ async function testAndSaveSBConfig(){
   }
 }
 
+
+// ─── CONFIG TABS ─────────────────────────────────────────────────────────────
+function setCfgTab(idx){
+  document.querySelectorAll('.cfg-tab').forEach(function(t,i){t.classList.toggle('active',i===idx);});
+  document.querySelectorAll('.cfg-page').forEach(function(p,i){p.classList.toggle('active',i===idx);});
+  // Load fondo grid when tab 2 opens
+  if(idx===2){var cfg=getCfg();buildFondoGrid(cfg.bgTheme||'dark');var inp=document.getElementById('cfg-bg-custom');if(inp)inp.value=(BG_THEMES[cfg.bgTheme||'dark']||BG_THEMES.dark).bg;}
+  // Load SB status when tab 3 opens
+  if(idx===3){loadSBConfig();}
+}
+
+// ─── BANNER PUBLICIDAD ────────────────────────────────────────────────────────
+var _pendingBanner='';
+
+function handleBannerImg(inp){
+  var f=inp.files[0];if(!f)return;
+  var reader=new FileReader();
+  reader.onload=function(e){
+    _pendingBanner=e.target.result;
+    showBannerPreview(_pendingBanner);
+    updateLoginBanner(_pendingBanner);
+  };
+  reader.readAsDataURL(f);
+}
+function removeBanner(){
+  _pendingBanner='';
+  showBannerPreview('');
+  updateLoginBanner('');
+  var inp=document.getElementById('banner-file-inp');if(inp)inp.value='';
+}
+function showBannerPreview(data){
+  var prev=document.getElementById('banner-preview');
+  var hint=document.getElementById('banner-hint');
+  var btn=document.getElementById('banner-remove-btn');
+  if(data){if(prev){prev.src=data;prev.style.display='block';}if(hint)hint.style.display='none';if(btn)btn.style.display='inline-block';}
+  else{if(prev)prev.style.display='none';if(hint)hint.style.display='block';if(btn)btn.style.display='none';}
+}
+function updateLoginBanner(data){
+  var wrap=document.getElementById('login-banner');
+  var img=document.getElementById('login-banner-img');
+  var ph=document.getElementById('login-banner-ph');
+  if(!wrap)return;
+  // Siempre mostrar el banner - con imagen o con placeholder de color
+  wrap.style.display='block';
+  if(data){
+    wrap.classList.remove('no-img');
+    if(img){img.src=data;img.style.display='block';}
+    if(ph)ph.style.display='none';
+  } else {
+    wrap.classList.add('no-img');
+    if(img){img.src='';img.style.display='none';}
+    if(ph)ph.style.display='flex';
+  }
+}
+
+// ─── LOGIN SCREEN — nombre empresa + banner ───────────────────────────────────
+function updateLoginScreen(){
+  var cfg=getCfg();
+  var empresa=cfg.empresa||'MotoRepuestos';
+  // h1 nombre empresa
+  var h1=document.getElementById('login-empresa-h1');
+  if(h1)h1.textContent=empresa;
+  // Subtítulo
+  var sub=document.getElementById('login-empresa-sub');
+  if(sub)sub.textContent='Catálogo y pedidos en línea';
+  // Banner placeholder texts
+  var bTitle=document.getElementById('login-banner-title');
+  if(bTitle)bTitle.textContent='Bienvenido a '+empresa;
+  var bBadge=document.getElementById('login-banner-empresa');
+  if(bBadge)bBadge.textContent=empresa;
+  // Banner imagen o placeholder
+  var banner=cfg.bannerImg||'';
+  updateLoginBanner(banner);
+}
+
 // ─── BORRAR DATOS POR RANGO DE FECHA ─────────────────────────────────────────
 function parseFechaOrden(dateStr){
   // Parsea "11/5/2026, 9:34:31 a. m." → Date
@@ -875,95 +994,88 @@ async function sbPatch(table,filter,data){
   }catch(e){console.warn('Supabase PATCH error',e);return false;}
 }
 
-// ─── SINCRONIZACIÓN: localStorage ↔ Supabase ────────────────────────────────
-// Si Supabase está configurado, sincroniza al iniciar y al guardar.
-// Si no, funciona 100% offline con localStorage.
+// ─── CAPA DE DATOS — Supabase primero, localStorage como caché ──────────────
+// Cuando _sbReady=true, TODAS las lecturas y escrituras van a Supabase.
+// localStorage solo se usa cuando Supabase no está configurado.
 
+const DBK='mrp_db3', ORK='mrp_ord3', CFG_K='mrp_cfg3';
+
+// ─── MAPPERS ────────────────────────────────────────────────────────────────
+function mapProd(p){return{id:p.id,ref:p.ref||'',name:p.name,cat:p.cat,price:parseFloat(p.price)||0,stock:parseInt(p.stock)||0,min:parseInt(p.min_stock)||0,brand:p.brand||'',photo:p.photo||'',allowNoStock:!!p.allow_nostock};}
+function mapOrder(o){return{id:o.id,client:o.client,items:o.items,subtotal:parseFloat(o.subtotal)||0,ivaPct:parseFloat(o.iva_pct)||0,ivaNom:o.iva_nom||'IVA',tax:parseFloat(o.tax)||0,total:parseFloat(o.total)||0,date:o.date_str};}
+function mapCfgFromSB(sc,existing){return Object.assign({},existing,{empresa:sc.empresa||existing.empresa,nit:sc.nit||existing.nit,tel:sc.tel||existing.tel,dir:sc.dir||existing.dir,wa:sc.wa||existing.wa,iva:parseFloat(sc.iva)||existing.iva,ivaNom:sc.iva_nom||existing.ivaNom,cats:sc.cats||existing.cats,brands:sc.brands||existing.brands,bgTheme:sc.bg_theme||existing.bgTheme,logo:sc.logo||existing.logo,bannerImg:sc.banner_img||existing.bannerImg||'',adminUser:sc.admin_user||existing.adminUser,adminPass:sc.admin_pass||existing.adminPass});}
+
+// ─── GETTERS — leen de Supabase si está listo, si no de localStorage ────────
+async function getDBAsync(){
+  if(_sbReady){
+    var r=await sbGet('productos','?order=id.asc');
+    if(r&&r.length){var d=r.map(mapProd);localStorage.setItem(DBK,JSON.stringify(d));return d;}
+  }
+  var local=localStorage.getItem(DBK);return local?JSON.parse(local):SEED;
+}
+async function getOrdsAsync(){
+  if(_sbReady){
+    var r=await sbGet('pedidos','?order=created_at.desc');
+    if(r){var d=r.map(mapOrder);localStorage.setItem(ORK,JSON.stringify(d));return d;}
+  }
+  var local=localStorage.getItem(ORK);return local?JSON.parse(local):[];
+}
+async function getCfgAsync(){
+  if(_sbReady){
+    var r=await sbGet('configuracion','?id=eq.main');
+    if(r&&r.length){var existing=getCfg();var d=mapCfgFromSB(r[0],existing);localStorage.setItem(CFG_K,JSON.stringify(d));return d;}
+  }
+  return getCfg();
+}
+
+// ─── GETTERS SÍNCRONOS — leen solo de localStorage (caché) ──────────────────
+function getDB(){var r=localStorage.getItem(DBK);return r?JSON.parse(r):SEED;}
+function getOrds(){var r=localStorage.getItem(ORK);return r?JSON.parse(r):[];}
+function getCfg(){var r=localStorage.getItem(CFG_K);return r?JSON.parse(r):{iva:19,ivaNom:'IVA',wa:'',empresa:'MotoRepuestos Pro',nit:'',tel:'',cats:['Motor','Frenos','Eléctrico','Transmisión','Suspensión','Aceites','Llantas'],brands:['Universal','NGK','EBC','Yuasa','DID','JT','YSS','Wave','Honda','Yamaha'],bgTheme:'dark',logo:'',bannerImg:'',adminUser:'admin',adminPass:'1234'};}
+
+// ─── SETTERS — escriben en Supabase Y en localStorage simultáneamente ───────
+function saveDB(d){
+  localStorage.setItem(DBK,JSON.stringify(d));
+}
+function saveOrds(d){
+  localStorage.setItem(ORK,JSON.stringify(d));
+}
+function saveCfg(d){
+  localStorage.setItem(CFG_K,JSON.stringify(d));
+}
+
+// ─── PUSH A SUPABASE — escritura directa ────────────────────────────────────
+async function pushProductToSB(prod){
+  if(!_sbReady)return;
+  await sbUpsert('productos',{id:prod.id,ref:prod.ref||null,name:prod.name,cat:prod.cat,price:prod.price,stock:prod.stock,min_stock:prod.min||0,brand:prod.brand||null,photo:prod.photo||null,allow_nostock:!!prod.allowNoStock},'id');
+}
+async function deleteProductFromSB(id){if(!_sbReady)return;await sbDelete('productos','id=eq.'+id);}
+async function pushOrderToSB(order){
+  if(!_sbReady)return;
+  await sbUpsert('pedidos',{id:order.id,client:order.client,items:order.items,subtotal:order.subtotal,iva_pct:order.ivaPct,iva_nom:order.ivaNom,tax:order.tax,total:order.total,date_str:order.date},'id');
+}
+async function deleteOrdersFromSB(ids){
+  if(!_sbReady)return;
+  for(var i=0;i<ids.length;i++){await sbDelete('pedidos','id=eq.'+ids[i]);}
+}
+async function pushConfigToSB(cfg){
+  if(!_sbReady)return;
+  await sbUpsert('configuracion',{id:'main',empresa:cfg.empresa,nit:cfg.nit||null,tel:cfg.tel||null,dir:cfg.dir||null,wa:cfg.wa||null,iva:cfg.iva,iva_nom:cfg.ivaNom,cats:cfg.cats,brands:cfg.brands,bg_theme:cfg.bgTheme||'dark',logo:cfg.logo||null,banner_img:cfg.bannerImg||null,admin_user:cfg.adminUser||'admin',admin_pass:cfg.adminPass||'1234'},'id');
+}
+
+// ─── SYNC COMPLETO — trae todo de Supabase y actualiza caché ────────────────
 async function syncFromSupabase(){
   if(!_sbReady)return;
-  // Indicador discreto en topbar
-  var tbBrand=document.getElementById('tb-brand-name');
-  var origText=tbBrand?tbBrand.textContent:'';
   try{
-    // Productos
     var prods=await sbGet('productos','?order=id.asc');
-    if(prods&&prods.length){
-      var mapped=prods.map(function(p){return{
-        id:p.id,ref:p.ref||'',name:p.name,cat:p.cat,price:parseFloat(p.price)||0,
-        stock:parseInt(p.stock)||0,min:parseInt(p.min_stock)||0,brand:p.brand||'',
-        photo:p.photo||'',allowNoStock:!!p.allow_nostock
-      };});
-      saveDB(mapped);
-    }
-    // Pedidos
+    if(prods&&prods.length)localStorage.setItem(DBK,JSON.stringify(prods.map(mapProd)));
     var ords=await sbGet('pedidos','?order=created_at.desc');
-    if(ords&&ords.length){
-      var mappedOrds=ords.map(function(o){return{
-        id:o.id,client:o.client,items:o.items,subtotal:parseFloat(o.subtotal)||0,
-        ivaPct:parseFloat(o.iva_pct)||0,ivaNom:o.iva_nom||'IVA',
-        tax:parseFloat(o.tax)||0,total:parseFloat(o.total)||0,date:o.date_str
-      };});
-      saveOrds(mappedOrds);
-    }
-    // Config
+    if(ords)localStorage.setItem(ORK,JSON.stringify(ords.map(mapOrder)));
     var cfgArr=await sbGet('configuracion','?id=eq.main');
-    if(cfgArr&&cfgArr.length){
-      var sc=cfgArr[0];
-      var existing=getCfg();
-      var merged=Object.assign({},existing,{
-        empresa:sc.empresa||existing.empresa,nit:sc.nit||existing.nit,
-        tel:sc.tel||existing.tel,dir:sc.dir||existing.dir,wa:sc.wa||existing.wa,
-        iva:parseFloat(sc.iva)||existing.iva,ivaNom:sc.iva_nom||existing.ivaNom,
-        cats:sc.cats||existing.cats,brands:sc.brands||existing.brands,
-        bgTheme:sc.bg_theme||existing.bgTheme,logo:sc.logo||existing.logo,
-        adminUser:sc.admin_user||existing.adminUser,adminPass:sc.admin_pass||existing.adminPass
-      });
-      saveCfg(merged);
-    }
+    if(cfgArr&&cfgArr.length){var merged=mapCfgFromSB(cfgArr[0],getCfg());localStorage.setItem(CFG_K,JSON.stringify(merged));}
     console.log('Supabase sync OK');
   }catch(e){console.warn('Supabase sync error',e);}
 }
-
-async function pushProductToSB(prod){
-  if(!_sbReady)return;
-  await sbUpsert('productos',{
-    id:prod.id,ref:prod.ref||null,name:prod.name,cat:prod.cat,
-    price:prod.price,stock:prod.stock,min_stock:prod.min||0,
-    brand:prod.brand||null,photo:prod.photo||null,allow_nostock:!!prod.allowNoStock
-  },'id');
-}
-
-async function deleteProductFromSB(id){
-  if(!_sbReady)return;
-  await sbDelete('productos','id=eq.'+id);
-}
-
-async function pushOrderToSB(order){
-  if(!_sbReady)return;
-  await sbUpsert('pedidos',{
-    id:order.id,client:order.client,items:order.items,
-    subtotal:order.subtotal,iva_pct:order.ivaPct,iva_nom:order.ivaNom,
-    tax:order.tax,total:order.total,date_str:order.date
-  },'id');
-}
-
-async function deleteOrdersFromSB(ids){
-  if(!_sbReady)return;
-  await sbDelete('pedidos','id=in.('+ids.map(function(i){return '"'+i+'"';}).join(',')+')');
-}
-
-async function pushConfigToSB(cfg){
-  if(!_sbReady)return;
-  await sbUpsert('configuracion',{
-    id:'main',empresa:cfg.empresa,nit:cfg.nit||null,tel:cfg.tel||null,
-    dir:cfg.dir||null,wa:cfg.wa||null,iva:cfg.iva,iva_nom:cfg.ivaNom,
-    cats:cfg.cats,brands:cfg.brands,bg_theme:cfg.bgTheme||'dark',
-    logo:cfg.logo||null,admin_user:cfg.adminUser||'admin',admin_pass:cfg.adminPass||'1234'
-  },'id');
-}
-
-// ─── STORAGE ─────────────────────────────────────────────────────────────────
-const DBK='mrp_db3', ORK='mrp_ord3', CFG_K='mrp_cfg3';
 
 const SEED=[
   {id:1,ref:'MOT-001',name:'Filtro de aire',cat:'Motor',price:28000,stock:15,min:5,brand:'Universal',photo:''},
@@ -984,7 +1096,7 @@ function getOrds(){const r=localStorage.getItem(ORK);return r?JSON.parse(r):[];}
 function saveOrds(d){localStorage.setItem(ORK,JSON.stringify(d));}
 function getCfg(){
   const r=localStorage.getItem(CFG_K);
-  return r?JSON.parse(r):{iva:19,ivaNom:'IVA',wa:'',empresa:'MotoRepuestos Pro',nit:'',tel:'',cats:['Motor','Frenos','Eléctrico','Transmisión','Suspensión','Aceites','Llantas'],brands:['Universal','NGK','EBC','Yuasa','DID','JT','YSS','Wave','Honda','Yamaha'],bgTheme:'dark',logo:'',adminUser:'admin',adminPass:'1234'};
+  return r?JSON.parse(r):{iva:19,ivaNom:'IVA',wa:'',empresa:'MotoRepuestos Pro',nit:'',tel:'',cats:['Motor','Frenos','Eléctrico','Transmisión','Suspensión','Aceites','Llantas'],brands:['Universal','NGK','EBC','Yuasa','DID','JT','YSS','Wave','Honda','Yamaha'],bgTheme:'dark',logo:'',bannerImg:'',adminUser:'admin',adminPass:'1234'};
 }
 function saveCfg(d){localStorage.setItem(CFG_K,JSON.stringify(d));}
 function nid(a){return a.length?Math.max(...a.map(x=>x.id))+1:1;}
@@ -1207,10 +1319,10 @@ function renderPag(containerId, current, total, onPageFn){
   el.appendChild(btns);
 }
 
-function renderCatalog(){
+async function renderCatalog(){
   const q=(document.getElementById('sq').value||'').toLowerCase();
   const sel=document.getElementById('cf');const pv=sel.value;
-  const db=getDB();
+  const db=await getDBAsync();
   const cats=[...new Set(db.map(p=>p.cat))].sort();
   sel.innerHTML='<option value="">Todas</option>'+cats.map(c=>`<option${c===pv?' selected':''}>${c}</option>`).join('');
   const cat=sel.value;
@@ -1370,7 +1482,7 @@ function rmItem(id){delete cart[String(id)];updateBadge();renderCart();}
 // ─── PEDIDO PENDIENTE (mientras el cliente confirma en WA) ──────────────────
 var _ordenPendiente=null;
 
-function confirmOrder(){
+async function confirmOrder(){
   var client=document.getElementById('cname').value.trim();
   // Validar que el nombre no esté vacío
   if(!client){
@@ -1391,7 +1503,7 @@ function confirmOrder(){
     sub+=p.price*qty;
     return{name:p.name,ref:p.ref||'',qty:qty,price:p.price};
   }).filter(function(x){return x!==null;});
-  var orders=getOrds();
+  var orders=await getOrdsAsync();
   var consec='PED-'+String(orders.length+1).padStart(4,'0');
   var tax=sub*(ivaPct/100);
   _ordenPendiente={
@@ -1421,7 +1533,7 @@ function abrirWAModal(order,cfg){
   document.getElementById('wa-confirm-modal').classList.add('open');
 }
 
-function ejecutarEnvioWA(){
+async function ejecutarEnvioWA(){
   if(!_ordenPendiente)return;
   var order=_ordenPendiente;
   var cfg=order.cfg;
@@ -1546,8 +1658,8 @@ function generarPDF(order,cfg){
 }
 
 // ─── INVENTORY ───────────────────────────────────────────────────────────────
-function renderInventory(){
-  const db=getDB();
+async function renderInventory(){
+  const db=await getDBAsync();
   const low=db.filter(p=>p.stock<=p.min&&p.stock>0).length;
   const out=db.filter(p=>p.stock===0).length;
   const val=db.reduce((a,p)=>a+p.price*p.stock,0);
@@ -1590,8 +1702,8 @@ function renderInventory(){
 }
 
 // ─── HISTORY ─────────────────────────────────────────────────────────────────
-function renderHistory(){
-  const orders=getOrds();
+async function renderHistory(){
+  const orders=await getOrdsAsync();
   if(!orders.length){
     document.getElementById('hlist').innerHTML='<div style="color:var(--t3);font-size:13px;text-align:center;padding:40px">Sin pedidos aún</div>';
     renderPag('hist-pag',1,1,function(){});
@@ -1760,6 +1872,7 @@ function applyTheme(th){
 
 function applyStoredTheme(){
   var cfg=getCfg();
+  updateLoginScreen();
   var th=BG_THEMES[cfg.bgTheme||'dark']||BG_THEMES.dark;
   applyTheme(th);
   applyLogo(cfg.logo||'');
@@ -1863,8 +1976,8 @@ function removeListItem(type,idx){
 }
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
-function loadConfig(){
-  var cfg=getCfg();
+async function loadConfig(){
+  var cfg=await getCfgAsync();
   document.getElementById('cfg-iva').value=cfg.iva!=null?cfg.iva:19;
   document.getElementById('cfg-iva-nom').value=cfg.ivaNom||'IVA';
   document.getElementById('cfg-wa').value=cfg.wa||'';
@@ -1873,6 +1986,9 @@ function loadConfig(){
   document.getElementById('cfg-tel').value=cfg.tel||'';
   _pendingLogo=cfg.logo||'';
   showLogoPreview(_pendingLogo);
+  _pendingBanner=cfg.bannerImg||'';
+  showBannerPreview(_pendingBanner);
+  setCfgTab(0);
   var adminUserEl=document.getElementById('cfg-admin-user');
   var adminPassEl=document.getElementById('cfg-admin-pass');
   if(adminUserEl)adminUserEl.value=cfg.adminUser||'admin';
@@ -1899,6 +2015,7 @@ function saveConfig(){
     brands:existing.brands||DEF_BRANDS,
     bgTheme:bgTheme,
     logo:_pendingLogo,
+    bannerImg:_pendingBanner,
     adminUser:(document.getElementById('cfg-admin-user')||{value:'admin'}).value.trim()||'admin',
     adminPass:(document.getElementById('cfg-admin-pass')||{value:'1234'}).value||'1234'
   };
@@ -1907,6 +2024,7 @@ function saveConfig(){
   applyTheme(BG_THEMES[bgTheme]||BG_THEMES.dark);
   applyLogo(_pendingLogo);
   applyBrandName(cfg.empresa);
+  updateLoginScreen();
   toast('Configuración guardada','ok');
 }
 
@@ -2037,10 +2155,9 @@ function toast(msg,type=''){
   var sbKey=localStorage.getItem('mrp_sb_key')||'';
   if(sbUrl&&sbKey){SB_URL=sbUrl;SB_KEY=sbKey;_sbReady=true;}
   applyStoredTheme();
+  updateLoginScreen(); // Nombre empresa + banner en pantalla de inicio
   var r=detectRole();
   if(r){role=r;boot();}
-  // Si es acceso directo por ?rol= y SB está listo, boot() ya llama startAutoSync
-  // Si es pantalla de login, arrancar sync solo cuando entre
 })();
 </script>
 </body>
