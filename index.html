@@ -705,6 +705,12 @@ function loadSBConfig(){
   if(keyEl)keyEl.value=key;
   if(url&&key){SB_URL=url;SB_KEY=key;_sbReady=true;}
   updateSBStatus();
+  // Mostrar advertencia si es file://
+  if(window._isFileProtocol){
+    var el=document.getElementById('sb-status');
+    if(el){el.style.cssText='background:var(--amd);border:1px solid var(--am);color:var(--am);border-radius:8px;padding:8px 10px;font-size:12px;margin-bottom:12px';
+    el.textContent='⚠️ Archivo abierto localmente (file://). Para que Supabase funcione, sube el archivo a GitHub Pages o Netlify.';}
+  }
 }
 
 function updateSBStatus(){
@@ -976,51 +982,87 @@ var SB_KEY_HARDCODED = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmF
   window.SB_URL = url;
   window.SB_KEY = key;
   window._sbReady = !!(url && key);
+  // Detectar si se abre desde file:// (causa problemas de fetch en algunos navegadores)
+  window._isFileProtocol = (location.protocol === 'file:');
+  if(window._isFileProtocol){
+    console.warn('Abierto desde file:// — algunos navegadores bloquean fetch. Sube el archivo a un servidor web.');
+  }
 })();
 
 // ── SUPABASE REST HELPERS ─────────────────────────────────────────────────────
-function sbHeaders(){
-  return {'Content-Type':'application/json','apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY};
+function sbHeaders(write){
+  var h={'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY};
+  if(write)h['Content-Type']='application/json';
+  return h;
 }
 function sbUrl(table,query){return SB_URL+'/rest/v1/'+table+(query||'');}
 
-// GET — devuelve array
+// Fetch con timeout, modo cors explícito y no-cache
+function sbFetch(url,opts,timeoutMs){
+  timeoutMs=timeoutMs||10000;
+  // Forzar modo cors y no-cache para evitar problemas en Safari/iOS/file://
+  var finalOpts=Object.assign({mode:'cors',cache:'no-cache'},opts);
+  return new Promise(function(resolve,reject){
+    var timer=setTimeout(function(){reject(new Error('timeout'));},timeoutMs);
+    fetch(url,finalOpts)
+      .then(function(r){clearTimeout(timer);resolve(r);})
+      .catch(function(e){clearTimeout(timer);reject(e);});
+  });
+}
+
+// GET con reintento automático
 async function sbGet(table,query){
   if(!_sbReady)return null;
-  try{
-    var r=await fetch(sbUrl(table,query),{headers:Object.assign({'Accept':'application/json','Prefer':'return=representation'},sbHeaders())});
-    if(!r.ok)return null;
-    return await r.json();
-  }catch(e){console.warn('Supabase GET error',e);return null;}
+  var attempts=3;
+  for(var i=0;i<attempts;i++){
+    try{
+      var r=await sbFetch(sbUrl(table,query),{headers:Object.assign({'Accept':'application/json'},sbHeaders(false))},10000);
+      if(!r.ok)return null;
+      return await r.json();
+    }catch(e){
+      if(i<attempts-1){await new Promise(function(res){setTimeout(res,2000);});}
+      // Solo loguear en el último intento
+      else{console.warn('SB GET fallo ('+table+'):',e.message);}
+    }
+  }
+  return null;
 }
 
-// UPSERT — inserta o actualiza
+// UPSERT con reintento
 async function sbUpsert(table,data,onConflict){
   if(!_sbReady)return false;
-  try{
-    var pref='return=minimal'+(onConflict?',resolution=merge-duplicates':'');
-    var url=sbUrl(table,onConflict?'?on_conflict='+onConflict:'');
-    var r=await fetch(url,{method:'POST',headers:Object.assign({'Prefer':pref},sbHeaders()),body:JSON.stringify(Array.isArray(data)?data:[data])});
-    return r.ok;
-  }catch(e){console.warn('Supabase UPSERT error',e);return false;}
+  var attempts=2;
+  for(var i=0;i<attempts;i++){
+    try{
+      var pref='return=minimal'+(onConflict?',resolution=merge-duplicates':'');
+      var url=sbUrl(table,onConflict?'?on_conflict='+onConflict:'');
+      var r=await sbFetch(url,{method:'POST',headers:Object.assign({'Prefer':pref},sbHeaders(true)),body:JSON.stringify(Array.isArray(data)?data:[data])},10000);
+      if(r.ok)return true;
+      return false;
+    }catch(e){
+      if(i<attempts-1){await new Promise(function(res){setTimeout(res,1500);});}
+      else{console.warn('SB UPSERT fallo ('+table+'):',e.message);}
+    }
+  }
+  return false;
 }
 
-// DELETE por condición
+// DELETE
 async function sbDelete(table,filter){
   if(!_sbReady)return false;
   try{
-    var r=await fetch(sbUrl(table,'?'+filter),{method:'DELETE',headers:sbHeaders()});
+    var r=await sbFetch(sbUrl(table,'?'+filter),{method:'DELETE',headers:sbHeaders(true)},10000);
     return r.ok;
-  }catch(e){console.warn('Supabase DELETE error',e);return false;}
+  }catch(e){console.warn('SB DELETE fallo:',e.message);return false;}
 }
 
-// PATCH — actualizar filas que cumplan filtro
+// PATCH
 async function sbPatch(table,filter,data){
   if(!_sbReady)return false;
   try{
-    var r=await fetch(sbUrl(table,'?'+filter),{method:'PATCH',headers:Object.assign({'Prefer':'return=minimal'},sbHeaders()),body:JSON.stringify(data)});
+    var r=await sbFetch(sbUrl(table,'?'+filter),{method:'PATCH',headers:Object.assign({'Prefer':'return=minimal'},sbHeaders(true)),body:JSON.stringify(data)},10000);
     return r.ok;
-  }catch(e){console.warn('Supabase PATCH error',e);return false;}
+  }catch(e){console.warn('SB PATCH fallo:',e.message);return false;}
 }
 
 // ─── CAPA DE DATOS — Supabase primero, localStorage como caché ──────────────
@@ -1102,18 +1144,30 @@ async function pushConfigToSB(cfg){
   await sbUpsert('configuracion',{id:'main',empresa:cfg.empresa,nit:cfg.nit||null,tel:cfg.tel||null,dir:cfg.dir||null,wa:cfg.wa||null,iva:cfg.iva,iva_nom:cfg.ivaNom,cats:cfg.cats,brands:cfg.brands,bg_theme:cfg.bgTheme||'dark',logo:cfg.logo||null,banner_img:cfg.bannerImg||null,admin_user:cfg.adminUser||'admin',admin_pass:cfg.adminPass||'1234',sb_url:cfg.sbUrl||SB_URL||null,sb_key:cfg.sbKey||SB_KEY||null},'id');
 }
 
-// ─── SYNC COMPLETO — trae todo de Supabase y actualiza caché ────────────────
+// ─── SYNC COMPLETO — peticiones en paralelo, fallo parcial no bloquea ────────
 async function syncFromSupabase(){
   if(!_sbReady)return;
-  try{
-    var prods=await sbGet('productos','?order=id.asc');
-    if(prods&&prods.length)localStorage.setItem(DBK,JSON.stringify(prods.map(mapProd)));
-    var ords=await sbGet('pedidos','?order=created_at.desc');
-    if(ords)localStorage.setItem(ORK,JSON.stringify(ords.map(mapOrder)));
-    var cfgArr=await sbGet('configuracion','?id=eq.main');
-    if(cfgArr&&cfgArr.length){var merged=mapCfgFromSB(cfgArr[0],getCfg());localStorage.setItem(CFG_K,JSON.stringify(merged));}
-    console.log('Supabase sync OK');
-  }catch(e){console.warn('Supabase sync error',e);}
+  // Las 3 peticiones corren en paralelo — si una falla las otras siguen
+  var results=await Promise.allSettled([
+    sbGet('productos','?order=id.asc'),
+    sbGet('pedidos','?order=created_at.desc'),
+    sbGet('configuracion','?id=eq.main')
+  ]);
+  var ok=0;
+  // Productos
+  if(results[0].status==='fulfilled'&&results[0].value&&results[0].value.length){
+    localStorage.setItem(DBK,JSON.stringify(results[0].value.map(mapProd)));ok++;
+  }
+  // Pedidos
+  if(results[1].status==='fulfilled'&&results[1].value){
+    localStorage.setItem(ORK,JSON.stringify(results[1].value.map(mapOrder)));ok++;
+  }
+  // Config
+  if(results[2].status==='fulfilled'&&results[2].value&&results[2].value.length){
+    var merged=mapCfgFromSB(results[2].value[0],getCfg());
+    localStorage.setItem(CFG_K,JSON.stringify(merged));ok++;
+  }
+  if(ok>0)console.log('Supabase sync OK ('+ok+'/3)');
 }
 
 const SEED=[
