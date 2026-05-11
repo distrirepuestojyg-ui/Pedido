@@ -5,6 +5,63 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>MotoRepuestos Pro</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js">
+
+// ─── SUPABASE CONFIG UI ──────────────────────────────────────────────────────
+var SB_URL_KEY='mrp_sb_url', SB_KEY_KEY='mrp_sb_key';
+
+function loadSBConfig(){
+  var url=localStorage.getItem(SB_URL_KEY)||'';
+  var key=localStorage.getItem(SB_KEY_KEY)||'';
+  var urlEl=document.getElementById('cfg-sb-url');
+  var keyEl=document.getElementById('cfg-sb-key');
+  if(urlEl)urlEl.value=url;
+  if(keyEl)keyEl.value=key;
+  if(url&&key){SB_URL=url;SB_KEY=key;_sbReady=true;}
+  updateSBStatus();
+}
+
+function updateSBStatus(){
+  var url=(document.getElementById('cfg-sb-url')||{}).value||'';
+  var key=(document.getElementById('cfg-sb-key')||{}).value||'';
+  var el=document.getElementById('sb-status');
+  if(!el)return;
+  if(url&&key){
+    el.style.background='var(--tld)';el.style.borderColor='var(--tl)';
+    el.style.color='var(--tl)';el.textContent='🟢 Credenciales ingresadas · Toca "Conectar" para sincronizar';
+  } else {
+    el.style.background='var(--bg3)';el.style.borderColor='var(--b)';
+    el.style.color='var(--t2)';el.textContent='⚪ Sin configurar — funciona en modo local';
+  }
+}
+
+async function testAndSaveSBConfig(){
+  var url=(document.getElementById('cfg-sb-url').value||'').trim().replace(/\/$/,'');
+  var key=(document.getElementById('cfg-sb-key').value||'').trim();
+  if(!url||!key){toast('Ingresa URL y Key de Supabase','err');return;}
+  var el=document.getElementById('sb-status');
+  el.textContent='⏳ Probando conexión...';
+  try{
+    var r=await fetch(url+'/rest/v1/configuracion?id=eq.main',{
+      headers:{'apikey':key,'Authorization':'Bearer '+key,'Accept':'application/json'}
+    });
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    // Guardar credenciales
+    localStorage.setItem(SB_URL_KEY,url);
+    localStorage.setItem(SB_KEY_KEY,key);
+    SB_URL=url;SB_KEY=key;_sbReady=true;
+    el.style.background='var(--tld)';el.style.borderColor='var(--tl)';el.style.color='var(--tl)';
+    el.textContent='✅ Conectado a Supabase — sincronizando datos...';
+    toast('Conexión exitosa · Sincronizando...','ok');
+    await syncFromSupabase();
+    applyStoredTheme();renderCatalog();
+    el.textContent='✅ Conectado y sincronizado con Supabase';
+  }catch(e){
+    el.style.background='var(--rdd)';el.style.borderColor='var(--rd)';el.style.color='var(--rd)';
+    el.textContent='❌ Error: '+e.message+' — revisa URL y Key';
+    toast('Error de conexión','err');
+  }
+}
+
 // ─── BORRAR DATOS POR RANGO DE FECHA ─────────────────────────────────────────
 function parseFechaOrden(dateStr){
   // Parsea "11/5/2026, 9:34:31 a. m." → Date
@@ -73,7 +130,9 @@ function ejecutarBorrado(){
     var d=parseFechaOrden(o.date);
     return !(d&&d>=dDesde&&d<=dHasta);
   });
+  var deletedIds=encontrados.map(function(o){return o.id;});
   saveOrds(restantes);
+  deleteOrdersFromSB(deletedIds);
   // Resetear formulario
   document.getElementById('del-desde').value='';
   document.getElementById('del-hasta').value='';
@@ -588,6 +647,24 @@ button{cursor:pointer;border:none;background:none}
           </button>
         </div>
 
+        <!-- SUPABASE -->
+        <div class="cfg-section" id="sb-section">
+          <div class="cfg-title">🔗 Conexión Supabase</div>
+          <div id="sb-status" style="font-size:12px;margin-bottom:12px;padding:8px 10px;border-radius:8px;background:var(--bg3);border:1px solid var(--b)">
+            ⚪ Sin configurar — funciona en modo local (este dispositivo)
+          </div>
+          <div style="margin-bottom:10px">
+            <div style="font-size:11px;color:var(--t2);margin-bottom:5px;font-weight:500">Project URL</div>
+            <input class="fi" type="url" id="cfg-sb-url" placeholder="https://xyzxyz.supabase.co" style="font-size:13px" oninput="updateSBStatus()">
+          </div>
+          <div style="margin-bottom:10px">
+            <div style="font-size:11px;color:var(--t2);margin-bottom:5px;font-weight:500">Anon / Public Key</div>
+            <input class="fi" type="text" id="cfg-sb-key" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." style="font-size:11px;word-break:break-all" oninput="updateSBStatus()">
+          </div>
+          <button class="iab teal" style="width:100%;margin-bottom:8px;padding:11px" onclick="testAndSaveSBConfig()">🔌 Conectar y sincronizar</button>
+          <div style="font-size:11px;color:var(--t3);line-height:1.7">Obtén estos valores en:<br><strong style="color:var(--t2)">Supabase Dashboard → Settings → API</strong></div>
+        </div>
+
         <button class="cfg-save" onclick="saveConfig()">💾 Guardar configuración</button>
       </div>
     </div>
@@ -709,6 +786,143 @@ button{cursor:pointer;border:none;background:none}
 <div class="toast" id="toast"></div>
 
 <script>
+// ─── SUPABASE CONFIG ─────────────────────────────────────────────────────────
+// ⚠️ REEMPLAZA estos valores con los de tu proyecto Supabase:
+//    Dashboard → Settings → API → Project URL  y  anon public key
+var SB_URL = '';   // ej: 'https://xyzxyzxyz.supabase.co'
+var SB_KEY = '';   // ej: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+
+var _sbReady = !!(SB_URL && SB_KEY);
+
+// ── SUPABASE REST HELPERS ─────────────────────────────────────────────────────
+function sbHeaders(){
+  return {'Content-Type':'application/json','apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY};
+}
+function sbUrl(table,query){return SB_URL+'/rest/v1/'+table+(query||'');}
+
+// GET — devuelve array
+async function sbGet(table,query){
+  if(!_sbReady)return null;
+  try{
+    var r=await fetch(sbUrl(table,query),{headers:Object.assign({'Accept':'application/json','Prefer':'return=representation'},sbHeaders())});
+    if(!r.ok)return null;
+    return await r.json();
+  }catch(e){console.warn('Supabase GET error',e);return null;}
+}
+
+// UPSERT — inserta o actualiza
+async function sbUpsert(table,data,onConflict){
+  if(!_sbReady)return false;
+  try{
+    var pref='return=minimal'+(onConflict?',resolution=merge-duplicates':'');
+    var url=sbUrl(table,onConflict?'?on_conflict='+onConflict:'');
+    var r=await fetch(url,{method:'POST',headers:Object.assign({'Prefer':pref},sbHeaders()),body:JSON.stringify(Array.isArray(data)?data:[data])});
+    return r.ok;
+  }catch(e){console.warn('Supabase UPSERT error',e);return false;}
+}
+
+// DELETE por condición
+async function sbDelete(table,filter){
+  if(!_sbReady)return false;
+  try{
+    var r=await fetch(sbUrl(table,'?'+filter),{method:'DELETE',headers:sbHeaders()});
+    return r.ok;
+  }catch(e){console.warn('Supabase DELETE error',e);return false;}
+}
+
+// PATCH — actualizar filas que cumplan filtro
+async function sbPatch(table,filter,data){
+  if(!_sbReady)return false;
+  try{
+    var r=await fetch(sbUrl(table,'?'+filter),{method:'PATCH',headers:Object.assign({'Prefer':'return=minimal'},sbHeaders()),body:JSON.stringify(data)});
+    return r.ok;
+  }catch(e){console.warn('Supabase PATCH error',e);return false;}
+}
+
+// ─── SINCRONIZACIÓN: localStorage ↔ Supabase ────────────────────────────────
+// Si Supabase está configurado, sincroniza al iniciar y al guardar.
+// Si no, funciona 100% offline con localStorage.
+
+async function syncFromSupabase(){
+  if(!_sbReady)return;
+  try{
+    // Productos
+    var prods=await sbGet('productos','?order=id.asc');
+    if(prods&&prods.length){
+      var mapped=prods.map(function(p){return{
+        id:p.id,ref:p.ref||'',name:p.name,cat:p.cat,price:parseFloat(p.price)||0,
+        stock:parseInt(p.stock)||0,min:parseInt(p.min_stock)||0,brand:p.brand||'',
+        photo:p.photo||'',allowNoStock:!!p.allow_nostock
+      };});
+      saveDB(mapped);
+    }
+    // Pedidos
+    var ords=await sbGet('pedidos','?order=created_at.desc');
+    if(ords&&ords.length){
+      var mappedOrds=ords.map(function(o){return{
+        id:o.id,client:o.client,items:o.items,subtotal:parseFloat(o.subtotal)||0,
+        ivaPct:parseFloat(o.iva_pct)||0,ivaNom:o.iva_nom||'IVA',
+        tax:parseFloat(o.tax)||0,total:parseFloat(o.total)||0,date:o.date_str
+      };});
+      saveOrds(mappedOrds);
+    }
+    // Config
+    var cfgArr=await sbGet('configuracion','?id=eq.main');
+    if(cfgArr&&cfgArr.length){
+      var sc=cfgArr[0];
+      var existing=getCfg();
+      var merged=Object.assign({},existing,{
+        empresa:sc.empresa||existing.empresa,nit:sc.nit||existing.nit,
+        tel:sc.tel||existing.tel,dir:sc.dir||existing.dir,wa:sc.wa||existing.wa,
+        iva:parseFloat(sc.iva)||existing.iva,ivaNom:sc.iva_nom||existing.ivaNom,
+        cats:sc.cats||existing.cats,brands:sc.brands||existing.brands,
+        bgTheme:sc.bg_theme||existing.bgTheme,logo:sc.logo||existing.logo,
+        adminUser:sc.admin_user||existing.adminUser,adminPass:sc.admin_pass||existing.adminPass
+      });
+      saveCfg(merged);
+    }
+    console.log('Supabase sync OK');
+  }catch(e){console.warn('Supabase sync error',e);}
+}
+
+async function pushProductToSB(prod){
+  if(!_sbReady)return;
+  await sbUpsert('productos',{
+    id:prod.id,ref:prod.ref||null,name:prod.name,cat:prod.cat,
+    price:prod.price,stock:prod.stock,min_stock:prod.min||0,
+    brand:prod.brand||null,photo:prod.photo||null,allow_nostock:!!prod.allowNoStock
+  },'id');
+}
+
+async function deleteProductFromSB(id){
+  if(!_sbReady)return;
+  await sbDelete('productos','id=eq.'+id);
+}
+
+async function pushOrderToSB(order){
+  if(!_sbReady)return;
+  await sbUpsert('pedidos',{
+    id:order.id,client:order.client,items:order.items,
+    subtotal:order.subtotal,iva_pct:order.ivaPct,iva_nom:order.ivaNom,
+    tax:order.tax,total:order.total,date_str:order.date
+  },'id');
+}
+
+async function deleteOrdersFromSB(ids){
+  if(!_sbReady)return;
+  await sbDelete('pedidos','id=in.('+ids.map(function(i){return '"'+i+'"';}).join(',')+')');
+}
+
+async function pushConfigToSB(cfg){
+  if(!_sbReady)return;
+  await sbUpsert('configuracion',{
+    id:'main',empresa:cfg.empresa,nit:cfg.nit||null,tel:cfg.tel||null,
+    dir:cfg.dir||null,wa:cfg.wa||null,iva:cfg.iva,iva_nom:cfg.ivaNom,
+    cats:cfg.cats,brands:cfg.brands,bg_theme:cfg.bgTheme||'dark',
+    logo:cfg.logo||null,admin_user:cfg.adminUser||'admin',admin_pass:cfg.adminPass||'1234'
+  },'id');
+}
+
 // ─── STORAGE ─────────────────────────────────────────────────────────────────
 const DBK='mrp_db3', ORK='mrp_ord3', CFG_K='mrp_cfg3';
 
@@ -802,6 +1016,8 @@ function boot(){
   pill.textContent=role==='admin'?'⚙ Admin':'🛒 Cliente';
   pill.className='rpill '+(role==='admin'?'rp-a':'rp-c');
   applyStoredTheme();buildNav();goTo('catalog');
+  // Sincronizar desde Supabase en segundo plano
+  if(_sbReady){syncFromSupabase().then(function(){applyStoredTheme();renderCatalog();});}
 }
 
 // ─── NAV ─────────────────────────────────────────────────────────────────────
@@ -1138,8 +1354,10 @@ function ejecutarEnvioWA(){
 
   // 2. Guardar pedido
   var orders=getOrds();
-  orders.unshift({id:order.id,client:order.client,items:order.items,subtotal:order.subtotal,ivaPct:order.ivaPct,ivaNom:order.ivaNom,tax:order.tax,total:order.total,date:order.date});
+  var newOrder={id:order.id,client:order.client,items:order.items,subtotal:order.subtotal,ivaPct:order.ivaPct,ivaNom:order.ivaNom,tax:order.tax,total:order.total,date:order.date};
+  orders.unshift(newOrder);
   saveOrds(orders);
+  pushOrderToSB(newOrder);
 
   // 3. WhatsApp PRIMERO — mensaje corto, el detalle va en el PDF
   if(cfg.wa){
@@ -1579,6 +1797,7 @@ function loadConfig(){
   if(adminPassEl)adminPassEl.value=cfg.adminPass||'1234';
   renderListManager('cats',cfg.cats||DEF_CATS);
   renderListManager('brands',cfg.brands||DEF_BRANDS);
+  loadSBConfig();
   buildFondoGrid(cfg.bgTheme||'dark');
   var inp=document.getElementById('cfg-bg-custom');if(inp)inp.value=(BG_THEMES[cfg.bgTheme||'dark']||BG_THEMES.dark).bg;
 }
@@ -1602,6 +1821,7 @@ function saveConfig(){
     adminPass:(document.getElementById('cfg-admin-pass')||{value:'1234'}).value||'1234'
   };
   saveCfg(cfg);
+  pushConfigToSB(cfg);
   applyTheme(BG_THEMES[bgTheme]||BG_THEMES.dark);
   applyLogo(_pendingLogo);
   applyBrandName(cfg.empresa);
@@ -1655,10 +1875,14 @@ function saveProduct(){
   if(editId){var i=db.findIndex(function(x){return x.id===editId;});if(i>=0)db[i]=Object.assign({},db[i],{ref:ref,name:name,cat:cat,price:price,stock:stock,min:min,brand:brand,photo:pendPhoto,allowNoStock:allowNoStock});}
   else db.push({id:nid(db),ref:ref,name:name,cat:cat,price:price,stock:stock,min:min,brand:brand,photo:pendPhoto,allowNoStock:allowNoStock});
   PAG.inv=1;saveDB(db);closeM('pm');renderInventory();toast(editId?'Producto actualizado':'Producto creado','ok');
+  // Sync a Supabase
+  var savedProd=editId?db.find(function(x){return x.id===editId;}):db[db.length-1];
+  if(savedProd)pushProductToSB(savedProd);
 }
 function delProd(id){
   if(!confirm('¿Eliminar este producto?'))return;
   saveDB(getDB().filter(x=>x.id!==id));renderInventory();toast('Eliminado');
+  deleteProductFromSB(id);
 }
 
 // ─── IMPORT ──────────────────────────────────────────────────────────────────
@@ -1725,7 +1949,14 @@ function toast(msg,type=''){
 }
 
 // ─── INIT ────────────────────────────────────────────────────────────────────
-(function(){applyStoredTheme();var r=detectRole();if(r){role=r;boot();}})();
+(function(){
+  // Cargar credenciales SB guardadas
+  var sbUrl=localStorage.getItem('mrp_sb_url')||'';
+  var sbKey=localStorage.getItem('mrp_sb_key')||'';
+  if(sbUrl&&sbKey){SB_URL=sbUrl;SB_KEY=sbKey;_sbReady=true;}
+  applyStoredTheme();
+  var r=detectRole();if(r){role=r;boot();}
+})();
 </script>
 </body>
 </html>
