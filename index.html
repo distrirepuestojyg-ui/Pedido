@@ -118,6 +118,11 @@ button{cursor:pointer;border:none;background:none}
 .bp-title{font-size:20px;font-weight:700;color:#fff;margin-bottom:4px}
 .bp-sub{font-size:13px;color:rgba(255,255,255,.8);margin-bottom:10px}
 .bp-badge{background:rgba(255,255,255,.2);color:#fff;font-size:11px;font-weight:600;padding:4px 14px;border-radius:99px;border:1px solid rgba(255,255,255,.35)}
+
+/* ── ACCESO ADMIN OCULTO ── */
+.admin-secret-btn{position:fixed;top:10px;left:12px;z-index:999;background:transparent;border:none;cursor:pointer;-webkit-tap-highlight-color:transparent;padding:4px 6px;border-radius:6px}
+.admin-secret-btn span{font-size:10px;color:var(--t3);font-weight:500;letter-spacing:.3px;opacity:.45;transition:opacity .2s}
+.admin-secret-btn:active span{opacity:1}
 /* ── MOBILE HEIGHT FIX ── */
 @supports (-webkit-touch-callout: none){
   /* iOS Safari */
@@ -351,6 +356,11 @@ button{cursor:pointer;border:none;background:none}
 
 <!-- LOGIN -->
 <div id="login-screen">
+  <!-- Acceso admin discreto — esquina superior izquierda -->
+  <button class="admin-secret-btn" onclick="abrirLoginAdmin()" title="Administrador">
+    <span>Admin</span>
+  </button>
+
   <!-- Banner publicitario -->
   <div class="login-banner" id="login-banner" style="display:none">
     <img id="login-banner-img" src="" alt="">
@@ -362,17 +372,15 @@ button{cursor:pointer;border:none;background:none}
   </div>
   <div class="ll">
     <h1 id="login-empresa-h1">Moto<span>Repuestos</span></h1>
-    <p id="login-empresa-sub">Sistema de pedidos e inventario</p>
+    <p id="login-empresa-sub">Catálogo y pedidos en línea</p>
   </div>
-  <div class="lcards">
-    <div class="lcard" onclick="enterAs('client')">
-      <div class="ic">🛒</div><h3>Cliente</h3><p>Ver catálogo y hacer pedidos</p>
-    </div>
-    <div class="lcard" onclick="abrirLoginAdmin()">
-      <div class="ic">⚙️</div><h3>Admin</h3><p>Inventario y configuración</p>
+  <!-- Solo tarjeta cliente -->
+  <div style="width:100%;max-width:340px">
+    <div class="lcard" onclick="enterAs('client')" style="cursor:pointer">
+      <div class="ic">🛒</div><h3>Ver catálogo y hacer pedidos</h3>
+      <p>Explora nuestros productos y envía tu pedido por WhatsApp</p>
     </div>
   </div>
-  <p class="lhint">Link cliente: <code>?rol=cliente</code><br>Link admin: <code>?rol=admin</code></p>
 </div>
 
 <!-- APP -->
@@ -1154,14 +1162,32 @@ const DBK='mrp_db3', ORK='mrp_ord3', CFG_K='mrp_cfg3';
 // ─── MAPPERS ────────────────────────────────────────────────────────────────
 function mapProd(p){return{id:p.id,ref:p.ref||'',name:p.name,cat:p.cat,price:parseFloat(p.price)||0,stock:parseInt(p.stock)||0,min:parseInt(p.min_stock)||0,brand:p.brand||'',photo:p.photo||'',allowNoStock:!!p.allow_nostock};}
 function mapOrder(o){return{id:o.id,client:o.client,items:o.items,subtotal:parseFloat(o.subtotal)||0,ivaPct:parseFloat(o.iva_pct)||0,ivaNom:o.iva_nom||'IVA',tax:parseFloat(o.tax)||0,total:parseFloat(o.total)||0,date:o.date_str};}
+function pick(sbVal,local){return (sbVal!==null&&sbVal!==undefined)?sbVal:local;}
 function mapCfgFromSB(sc,existing){
-  var mapped=Object.assign({},existing,{empresa:sc.empresa||existing.empresa,nit:sc.nit||existing.nit,tel:sc.tel||existing.tel,dir:sc.dir||existing.dir,wa:sc.wa||existing.wa,iva:parseFloat(sc.iva)||existing.iva,ivaNom:sc.iva_nom||existing.ivaNom,cats:sc.cats||existing.cats,brands:sc.brands||existing.brands,bgTheme:sc.bg_theme||existing.bgTheme,logo:sc.logo||existing.logo,bannerImg:sc.banner_img||existing.bannerImg||'',adminUser:sc.admin_user||existing.adminUser,adminPass:sc.admin_pass||existing.adminPass,sbUrl:sc.sb_url||existing.sbUrl||'',sbKey:sc.sb_key||existing.sbKey||''});
-  // Si Supabase devuelve credenciales, activarlas automáticamente en este dispositivo
-  if(sc.sb_url&&sc.sb_key&&(!_sbReady||!SB_URL)){
-    SB_URL=sc.sb_url;SB_KEY=sc.sb_key;_sbReady=true;
-    localStorage.setItem('mrp_sb_url',sc.sb_url);
-    localStorage.setItem('mrp_sb_key',sc.sb_key);
-    console.log('Supabase credentials auto-loaded from config');
+  var mapped={
+    empresa:     pick(sc.empresa,     existing.empresa)||'MotoRepuestos Pro',
+    nit:         pick(sc.nit,         existing.nit)||'',
+    tel:         pick(sc.tel,         existing.tel)||'',
+    dir:         pick(sc.dir,         existing.dir)||'',
+    wa:          pick(sc.wa,          existing.wa)||'',
+    iva:         sc.iva!=null?parseFloat(sc.iva):(existing.iva||19),
+    ivaNom:      pick(sc.iva_nom,     existing.ivaNom)||'IVA',
+    cats:        pick(sc.cats,        existing.cats)||['Motor','Frenos','Eléctrico'],
+    brands:      pick(sc.brands,      existing.brands)||['Universal'],
+    bgTheme:     pick(sc.bg_theme,    existing.bgTheme)||'dark',
+    logo:        pick(sc.logo,        existing.logo)||'',
+    bannerImg:   pick(sc.banner_img,  existing.bannerImg)||'',
+    adminUser:   pick(sc.admin_user,  existing.adminUser)||'admin',
+    adminPass:   pick(sc.admin_pass,  existing.adminPass)||'1234',
+    sbUrl:       pick(sc.sb_url,      existing.sbUrl)||'',
+    sbKey:       pick(sc.sb_key,      existing.sbKey)||''
+  };
+  // Auto-activar credenciales SB en dispositivos nuevos
+  if(mapped.sbUrl&&mapped.sbKey&&(!_sbReady||!SB_URL)){
+    SB_URL=mapped.sbUrl;SB_KEY=mapped.sbKey;_sbReady=true;
+    localStorage.setItem('mrp_sb_url',mapped.sbUrl);
+    localStorage.setItem('mrp_sb_key',mapped.sbKey);
+    console.log('Supabase: credenciales cargadas desde config');
   }
   return mapped;
 }
@@ -1249,7 +1275,11 @@ async function syncFromSupabase(){
   }
   if(ok>0){
     console.log('Supabase sync OK ('+ok+'/3)');
-    // Actualizar banner y nombre empresa en pantalla de login con datos frescos
+    // Aplicar config fresca: tema, logo, banner, nombre
+    var freshCfg=getCfg();
+    applyTheme(BG_THEMES[freshCfg.bgTheme||'dark']||BG_THEMES.dark);
+    applyLogo(freshCfg.logo||'');
+    applyBrandName(freshCfg.empresa||'MotoRepuestos Pro');
     updateLoginScreen();
   }
 }
@@ -1290,6 +1320,28 @@ function detectRole(){
 }
 function enterAs(r){role=r;boot();}
 function logout(){document.getElementById('app').style.display='none';document.getElementById('login-screen').style.display='flex';}
+
+
+// ─── ACCESO ADMIN SECRETO (5 toques rápidos en esquina sup-izq) ─────────────
+var _secretTaps=0;
+var _secretTimer=null;
+
+function secretAdminTap(){
+  // Feedback visual
+  var dot=document.getElementById('admin-tap-dot');
+  if(dot){dot.classList.add('touched');setTimeout(function(){dot.classList.remove('touched');},200);}
+
+  _secretTaps++;
+  // Resetear contador si pasan más de 2 segundos sin tocar
+  if(_secretTimer)clearTimeout(_secretTimer);
+  _secretTimer=setTimeout(function(){_secretTaps=0;},2000);
+
+  if(_secretTaps>=5){
+    _secretTaps=0;
+    clearTimeout(_secretTimer);
+    abrirLoginAdmin();
+  }
+}
 
 // ─── ADMIN LOGIN ─────────────────────────────────────────────────────────────
 function abrirLoginAdmin(){
@@ -1337,13 +1389,13 @@ function clearNameError(){
   if(err)err.classList.remove('visible');
 }
 
-function boot(){
+async function boot(){
   document.getElementById('login-screen').style.display='none';
   const app=document.getElementById('app');app.style.display='flex';app.style.flexDirection='column';
   const pill=document.getElementById('rpill');
   pill.textContent=role==='admin'?'⚙ Admin':'🛒 Cliente';
   pill.className='rpill '+(role==='admin'?'rp-a':'rp-c');
-  applyStoredTheme();buildNav();goTo('catalog');
+  await applyStoredTheme();buildNav();goTo('catalog');
   // Sincronizar desde Supabase al entrar
   if(_sbReady){
     syncFromSupabase().then(function(){
@@ -2127,13 +2179,16 @@ function applyTheme(th){
   document.body.style.background=th.bg;
 }
 
-function applyStoredTheme(){
-  var cfg=getCfg();
-  updateLoginScreen();
+async function applyStoredTheme(){
+  // Cargar config fresca de Supabase si está disponible, si no del cache
+  var cfg;
+  if(_sbReady){try{cfg=await getCfgAsync();}catch(e){cfg=getCfg();}}
+  else{cfg=getCfg();}
   var th=BG_THEMES[cfg.bgTheme||'dark']||BG_THEMES.dark;
   applyTheme(th);
   applyLogo(cfg.logo||'');
   applyBrandName(cfg.empresa||'MotoRepuestos Pro');
+  updateLoginScreen();
 }
 
 function applyLogo(data){
@@ -2242,11 +2297,11 @@ function addListItem(type,inputId){
   var inp=document.getElementById(inputId);var val=(inp.value||'').trim();if(!val)return;
   var cfg=getCfg();var list=cfg[type]||(type==='cats'?DEF_CATS.slice():DEF_BRANDS.slice());
   if(list.indexOf(val)>=0){toast('Ya existe','err');return;}
-  list.push(val);cfg[type]=list;saveCfg(cfg);renderListManager(type,list);inp.value='';toast('"'+val+'" agregado','ok');
+  list.push(val);cfg[type]=list;saveCfg(cfg);pushConfigToSB(cfg);renderListManager(type,list);inp.value='';toast('"'+val+'" agregado','ok');
 }
 function removeListItem(type,idx){
   var cfg=getCfg();var list=cfg[type]||(type==='cats'?DEF_CATS.slice():DEF_BRANDS.slice());
-  var removed=list[idx];list.splice(idx,1);cfg[type]=list;saveCfg(cfg);renderListManager(type,list);toast('"'+removed+'" eliminado');
+  var removed=list[idx];list.splice(idx,1);cfg[type]=list;saveCfg(cfg);pushConfigToSB(cfg);renderListManager(type,list);toast('"'+removed+'" eliminado');
 }
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
@@ -2285,13 +2340,16 @@ function saveConfig(){
     empresa:document.getElementById('cfg-empresa').value.trim()||'MotoRepuestos Pro',
     nit:document.getElementById('cfg-nit').value.trim(),
     tel:document.getElementById('cfg-tel').value.trim(),
+    dir:existing.dir||'',
     cats:existing.cats||DEF_CATS,
     brands:existing.brands||DEF_BRANDS,
     bgTheme:bgTheme,
     logo:_pendingLogo,
     bannerImg:_pendingBanner,
     adminUser:(document.getElementById('cfg-admin-user')||{value:'admin'}).value.trim()||'admin',
-    adminPass:(document.getElementById('cfg-admin-pass')||{value:'1234'}).value||'1234'
+    adminPass:(document.getElementById('cfg-admin-pass')||{value:'1234'}).value||'1234',
+    sbUrl:existing.sbUrl||SB_URL||'',
+    sbKey:existing.sbKey||SB_KEY||''
   };
   saveCfg(cfg);
   pushConfigToSB(cfg);
@@ -2423,11 +2481,10 @@ function toast(msg,type=''){
 }
 
 // ─── INIT ────────────────────────────────────────────────────────────────────
-(function(){
-  applyStoredTheme();
-  updateLoginScreen();
+(async function(){
+  await applyStoredTheme(); // carga config de SB (incluye tema, logo, banner, empresa)
   var r=detectRole();
-  if(r){role=r;boot();}
+  if(r){role=r;await boot();}
 })();
 </script>
 </body>
