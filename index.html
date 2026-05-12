@@ -220,7 +220,13 @@ button{cursor:pointer;border:none;background:none}
 .cbtn:disabled{opacity:.3}
 
 /* ── INVENTORY ── */
-.iacts{display:flex;gap:8px;padding:12px;flex-shrink:0;flex-wrap:wrap}
+.iacts{display:flex;gap:8px;padding:10px 12px 0;flex-shrink:0;flex-wrap:wrap}
+.isearch{padding:8px 12px 0;flex-shrink:0}
+.isearch-inp{width:100%;background:var(--bg3);border:1px solid var(--b2);border-radius:10px;padding:10px 12px 10px 36px;color:var(--t);font-size:14px;position:relative}
+.isearch-inp:focus{outline:none;border-color:var(--or)}
+.isearch-wrap{position:relative}
+.isearch-ico{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--t3);pointer-events:none;display:flex}
+.isearch-clear{position:absolute;right:10px;top:50%;transform:translateY(-50%);color:var(--t3);background:none;border:none;font-size:16px;cursor:pointer;display:none;padding:2px 4px;line-height:1}
 .iab{flex:1;min-width:70px;padding:10px 6px;font-size:11px;font-weight:500;border:1px solid var(--b2);border-radius:10px;background:var(--bg3);color:var(--t2);display:flex;align-items:center;justify-content:center;gap:4px}
 .iab:active{background:var(--bg4)}
 .iab.prime{background:var(--or);border-color:var(--or);color:#fff}
@@ -427,6 +433,13 @@ button{cursor:pointer;border:none;background:none}
       <button class="iab" onclick="openImport()">📥 Importar</button>
       <button class="iab prime" onclick="openProduct()">+ Producto</button>
     </div>
+    <div class="isearch">
+      <div class="isearch-wrap">
+        <span class="isearch-ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
+        <input class="isearch-inp" type="search" id="inv-search" placeholder="Buscar por nombre, referencia o marca..." oninput="onInvSearch(this)">
+        <button class="isearch-clear" id="inv-search-clear" onclick="clearInvSearch()">×</button>
+      </div>
+    </div>
     <div class="istats" id="istats"></div>
     <div class="scr" style="flex:1"><div class="ilist" id="ilist"></div><div class="pag-wrap" id="inv-pag" style="display:none"></div></div>
   </div>
@@ -435,6 +448,13 @@ button{cursor:pointer;border:none;background:none}
   <div class="screen" id="sc-history">
     <div class="htop">
       <button class="iab" style="width:100%" onclick="exportOrders()">📤 Exportar pedidos a Excel</button>
+    </div>
+    <div class="isearch" style="padding:0 12px 8px">
+      <div class="isearch-wrap">
+        <span class="isearch-ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
+        <input class="isearch-inp" type="search" id="hist-search" placeholder="Buscar por cliente o N° de pedido..." oninput="onHistSearch(this)">
+        <button class="isearch-clear" id="hist-search-clear" onclick="clearHistSearch()">×</button>
+      </div>
     </div>
     <div class="scr" style="flex:1"><div id="hlist" style="padding:0 12px 8px"></div><div class="pag-wrap" id="hist-pag" style="display:none"></div></div>
   </div>
@@ -1967,6 +1987,28 @@ function generarPDF(order,cfg){
 }
 
 // ─── INVENTORY ───────────────────────────────────────────────────────────────
+// ─── BUSCADOR INVENTARIO ─────────────────────────────────────────────────────
+var _invQuery = '';
+
+function onInvSearch(inp){
+  _invQuery = (inp.value||'').toLowerCase().trim();
+  var clearBtn = document.getElementById('inv-search-clear');
+  if(clearBtn) clearBtn.style.display = _invQuery ? 'block' : 'none';
+  PAG.inv = 1; // reset a primera página
+  renderInventory();
+}
+
+function clearInvSearch(){
+  var inp = document.getElementById('inv-search');
+  if(inp){ inp.value=''; }
+  _invQuery = '';
+  var clearBtn = document.getElementById('inv-search-clear');
+  if(clearBtn) clearBtn.style.display = 'none';
+  PAG.inv = 1;
+  renderInventory();
+  if(inp) inp.focus();
+}
+
 async function renderInventory(){
   const db=await getDBAsync();
   const low=db.filter(p=>p.stock<=p.min&&p.stock>0).length;
@@ -1977,12 +2019,24 @@ async function renderInventory(){
     <div class="ist"><div class="istl">Valor stock</div><div class="istv" style="font-size:12px;color:var(--or2)">${fmt(val)}</div></div>
     <div class="ist"><div class="istl">Stock bajo</div><div class="istv" style="color:var(--am)">${low}</div></div>
     <div class="ist"><div class="istl">Agotados</div><div class="istv" style="color:var(--rd)">${out}</div></div>`;
-  const mx=Math.max(...db.map(p=>p.stock),1);
+  // Filtrar por búsqueda
+  var filtered = _invQuery
+    ? db.filter(function(p){
+        var hay = [p.name||'', p.ref||'', p.brand||'', p.cat||''].join(' ').toLowerCase();
+        return hay.includes(_invQuery);
+      })
+    : db;
+  if(!filtered.length){
+    document.getElementById('ilist').innerHTML='<div style="color:var(--t3);font-size:13px;text-align:center;padding:24px">Sin resultados para "'+_invQuery+'"</div>';
+    renderPag('inv-pag',1,1,function(){});
+    return;
+  }
+  const mx=Math.max(...filtered.map(p=>p.stock),1);
   var perPageI=PER_PAGE.inv;
-  var totalPagesI=Math.max(1,Math.ceil(db.length/perPageI));
+  var totalPagesI=Math.max(1,Math.ceil(filtered.length/perPageI));
   if(PAG.inv>totalPagesI)PAG.inv=1;
   var pageI=PAG.inv;
-  var dbPage=db.slice((pageI-1)*perPageI, pageI*perPageI);
+  var dbPage=filtered.slice((pageI-1)*perPageI, pageI*perPageI);
   document.getElementById('ilist').innerHTML=dbPage.map(p=>{
     const sc=p.stock===0&&!p.allowNoStock?'sout':p.stock===0&&p.allowNoStock?'slow':p.stock<=p.min?'slow':'sok';
     const st=p.stock===0&&!p.allowNoStock?'Agotado':p.stock===0&&p.allowNoStock?'Sin stock / Pedido':p.stock<=p.min?'Stock bajo':'Normal';
@@ -2008,9 +2062,34 @@ async function renderInventory(){
       </div></div>`;
   }).join('');
   renderPag('inv-pag', pageI, totalPagesI, function(pg){PAG.inv=pg;renderInventory();});
+  // Mostrar contador si hay búsqueda activa
+  var ilist=document.getElementById('ilist');
+  if(_invQuery&&ilist){var inf=document.createElement('div');inf.style.cssText='font-size:10px;color:var(--t3);text-align:center;padding:4px 0 8px';inf.textContent=filtered.length+' resultado'+(filtered.length!==1?'s':'');ilist.prepend(inf);}
 }
 
 // ─── HISTORY ─────────────────────────────────────────────────────────────────
+// ─── BUSCADOR PEDIDOS ────────────────────────────────────────────────────────
+var _histQuery = '';
+
+function onHistSearch(inp){
+  _histQuery = (inp.value||'').toLowerCase().trim();
+  var clearBtn = document.getElementById('hist-search-clear');
+  if(clearBtn) clearBtn.style.display = _histQuery ? 'block' : 'none';
+  PAG.hist = 1;
+  renderHistory();
+}
+
+function clearHistSearch(){
+  var inp = document.getElementById('hist-search');
+  if(inp) inp.value = '';
+  _histQuery = '';
+  var clearBtn = document.getElementById('hist-search-clear');
+  if(clearBtn) clearBtn.style.display = 'none';
+  PAG.hist = 1;
+  renderHistory();
+  if(inp) inp.focus();
+}
+
 async function renderHistory(){
   const orders=await getOrdsAsync();
   if(!orders.length){
@@ -2018,14 +2097,26 @@ async function renderHistory(){
     renderPag('hist-pag',1,1,function(){});
     return;
   }
+  // Filtrar por cliente o número de pedido
+  var filtered=_histQuery
+    ? orders.filter(function(o){
+        return (o.client||'').toLowerCase().includes(_histQuery)
+          || (o.id||'').toLowerCase().includes(_histQuery);
+      })
+    : orders;
+  if(!filtered.length){
+    document.getElementById('hlist').innerHTML='<div style="color:var(--t3);font-size:13px;text-align:center;padding:24px">Sin resultados para "'+_histQuery+'"</div>';
+    renderPag('hist-pag',1,1,function(){});
+    return;
+  }
   var perPageH=PER_PAGE.hist;
-  var totalPagesH=Math.max(1,Math.ceil(orders.length/perPageH));
+  var totalPagesH=Math.max(1,Math.ceil(filtered.length/perPageH));
   if(PAG.hist>totalPagesH)PAG.hist=1;
   var pageH=PAG.hist;
-  var ordersPage=orders.slice((pageH-1)*perPageH, pageH*perPageH);
+  var ordersPage=filtered.slice((pageH-1)*perPageH, pageH*perPageH);
   document.getElementById('hlist').innerHTML='';
   ordersPage.forEach(function(o,idx){
-    var realIdx=(pageH-1)*perPageH+idx;
+    var realIdx=orders.indexOf(o);
     var card=document.createElement('div');
     card.className='ocard';
 
@@ -2056,6 +2147,13 @@ async function renderHistory(){
     card.appendChild(foot);
     document.getElementById('hlist').appendChild(card);
   });
+  // Contador resultados si hay búsqueda
+  if(_histQuery){
+    var inf=document.createElement('div');
+    inf.style.cssText='font-size:10px;color:var(--t3);text-align:center;padding:0 0 6px';
+    inf.textContent=filtered.length+' pedido'+(filtered.length!==1?'s':'');
+    document.getElementById('hlist').prepend(inf);
+  }
   renderPag('hist-pag', pageH, totalPagesH, function(pg){PAG.hist=pg;renderHistory();});
 }
 
