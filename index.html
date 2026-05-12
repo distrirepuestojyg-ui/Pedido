@@ -1142,8 +1142,8 @@ function sbUrl(table,query){return SB_URL+'/rest/v1/'+table+(query||'');}
 // Fetch con timeout, modo cors explícito y no-cache
 function sbFetch(url,opts,timeoutMs){
   timeoutMs=timeoutMs||10000;
-  // Forzar modo cors y no-cache para evitar problemas en Safari/iOS/file://
-  var finalOpts=Object.assign({mode:'cors',cache:'no-cache'},opts);
+  // mode:'cors' explícito para requests cross-origin a Supabase
+  var finalOpts=Object.assign({mode:'cors'},opts);
   return new Promise(function(resolve,reject){
     var timer=setTimeout(function(){reject(new Error('timeout'));},timeoutMs);
     fetch(url,finalOpts)
@@ -1152,18 +1152,20 @@ function sbFetch(url,opts,timeoutMs){
   });
 }
 
-// GET con reintento automático
+// GET con reintento automático — headers mínimos para evitar CORS preflight
 async function sbGet(table,query){
   if(!_sbReady)return null;
   var attempts=3;
   for(var i=0;i<attempts;i++){
     try{
-      var r=await sbFetch(sbUrl(table,query),{headers:Object.assign({'Accept':'application/json'},sbHeaders(false))},10000);
+      // Usar solo apikey y Authorization — evita OPTIONS preflight innecesario
+      var r=await sbFetch(sbUrl(table,query),{
+        headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}
+      },10000);
       if(!r.ok)return null;
       return await r.json();
     }catch(e){
       if(i<attempts-1){await new Promise(function(res){setTimeout(res,2000);});}
-      // Solo loguear en el último intento
       else{console.warn('SB GET fallo ('+table+'):',e.message);}
     }
   }
@@ -2661,22 +2663,25 @@ function pwaInstall() {
 
 // Registrar Service Worker
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', function() {
-    navigator.serviceWorker.register('sw.js')
-      .then(function(reg) {
-        console.log('SW registrado:', reg.scope);
-        // Verificar actualizaciones
-        reg.addEventListener('updatefound', function() {
-          var newSW = reg.installing;
-          newSW.addEventListener('statechange', function() {
-            if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
-              toast('Nueva versión disponible — recarga para actualizar');
-            }
+  // Solo registrar SW cuando la app corre en un servidor real (no en file:// ni en Claude)
+  var isRealServer = location.protocol === 'https:' && !location.hostname.includes('claudeusercontent');
+  if (isRealServer) {
+    window.addEventListener('load', function() {
+      navigator.serviceWorker.register('sw.js')
+        .then(function(reg) {
+          console.log('SW registrado:', reg.scope);
+          reg.addEventListener('updatefound', function() {
+            var newSW = reg.installing;
+            newSW.addEventListener('statechange', function() {
+              if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
+                toast('Nueva version disponible — recarga para actualizar');
+              }
+            });
           });
-        });
-      })
-      .catch(function(e) { console.log('SW error:', e); });
-  });
+        })
+        .catch(function(e) { console.log('SW no disponible en este entorno:', e.message); });
+    });
+  }
 }
 
 // ─── INIT ────────────────────────────────────────────────────────────────────
