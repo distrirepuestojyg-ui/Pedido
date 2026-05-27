@@ -1740,6 +1740,10 @@ function renderPag(containerId, current, total, onPageFn){
   el.appendChild(btns);
 }
 
+// Variables para detectar cambio de filtro y resetear página
+var _lastCatFilter='';
+var _lastCatQuery='';
+
 async function renderCatalog(){
   const q=(document.getElementById('sq').value||'').toLowerCase();
   const sel=document.getElementById('cf');const pv=sel.value;
@@ -1747,7 +1751,12 @@ async function renderCatalog(){
   const cats=[...new Set(db.map(p=>p.cat))].sort();
   sel.innerHTML='<option value="">Todas</option>'+cats.map(c=>`<option${c===pv?' selected':''}>${c}</option>`).join('');
   const cat=sel.value;
-  PAG.cat=1;
+  // Solo resetear a página 1 cuando cambia el filtro o la búsqueda
+  if(cat!==_lastCatFilter||q!==_lastCatQuery){
+    PAG.cat=1;
+    _lastCatFilter=cat;
+    _lastCatQuery=q;
+  }
   document.getElementById('clbl').textContent=cat||'Catálogo completo';
   const list=db.filter(p=>(!cat||p.cat===cat)&&(!q||[p.name,p.ref,p.brand||''].join(' ').toLowerCase().includes(q)));
   // Reset a página 1 si el filtro cambió
