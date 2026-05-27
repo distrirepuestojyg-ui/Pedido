@@ -2553,39 +2553,108 @@ function delProd(id){
 
 // ─── IMPORT ──────────────────────────────────────────────────────────────────
 function openImport(){impData=[];document.getElementById('im-res').style.display='none';document.getElementById('im-ok').style.display='none';openM('im');}
+
 function handleImport(inp){
-  const f=inp.files[0];if(!f)return;
-  const r=new FileReader();
-  r.onload=e=>{
-    const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
-    const json=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-    impData=json.map(r=>({
-      ref:String(r['Referencia']||r['ref']||''),name:String(r['Nombre']||r['name']||''),
-      cat:String(r['Categoría']||r['cat']||'General'),
-      price:parseFloat(r['Precio']||0),stock:parseInt(r['Stock']||0),
-      min:parseInt(r['StockMinimo']||0),brand:String(r['Marca']||r['brand']||''),photo:''
-    })).filter(r=>r.ref&&r.name);
-    const res=document.getElementById('im-res');res.style.display='block';
-    res.textContent=`✅ ${impData.length} productos: ${impData.slice(0,3).map(r=>r.name).join(', ')}${impData.length>3?'...':''}`;
+  var f=inp.files[0];if(!f)return;
+  var reader=new FileReader();
+  reader.onload=function(e){
+    var wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+    var json=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+    impData=json.map(function(r){
+      // Leer columna VenderSinStock — acepta SI/NO/1/0/true/false
+      var noStockRaw=String(r['VenderSinStock']||r['vendersinstock']||r['VentaSinStock']||r['allow_nostock']||'').toLowerCase().trim();
+      var allowNoStock=(noStockRaw==='si'||noStockRaw==='sí'||noStockRaw==='1'||noStockRaw==='true'||noStockRaw==='yes');
+      return {
+        ref:       String(r['Referencia']||r['ref']||'').trim(),
+        name:      String(r['Nombre']||r['name']||'').trim(),
+        cat:       String(r['Categoría']||r['Categoria']||r['cat']||'General').trim(),
+        price:     parseFloat(r['Precio']||r['price']||0)||0,
+        stock:     parseInt(r['Stock']||r['stock']||0)||0,
+        min:       parseInt(r['StockMinimo']||r['StockMínimo']||r['min']||0)||0,
+        brand:     String(r['Marca']||r['brand']||'').trim(),
+        photo:     '',
+        allowNoStock: allowNoStock
+      };
+    }).filter(function(r){return r.name;});
+    var res=document.getElementById('im-res');res.style.display='block';
+    var conNoStock=impData.filter(function(r){return r.allowNoStock;}).length;
+    res.textContent='Leídos: '+impData.length+' productos'
+      +(conNoStock?' ('+conNoStock+' con venta sin stock)':'')
+      +': '+impData.slice(0,3).map(function(r){return r.name;}).join(', ')+(impData.length>3?'...':'');
     document.getElementById('im-ok').style.display='block';
-  };r.readAsArrayBuffer(f);
+  };
+  reader.readAsArrayBuffer(f);
 }
-function doImport(){
+
+async function doImport(){
   if(!impData.length)return;
-  const db=getDB();let u=0,a=0;
-  impData.forEach(row=>{
-    const i=db.findIndex(x=>x.ref===row.ref);
-    if(i>=0){db[i]={...db[i],...row,id:db[i].id,photo:db[i].photo};u++;}
-    else{db.push({...row,id:nid(db),photo:''});a++;}
+  var db=getDB();
+  var cfg=getCfg();
+  var cats=cfg.cats||DEF_CATS;
+  var brands=cfg.brands||DEF_BRANDS;
+  var u=0,a=0;
+  var toSync=[];
+
+  impData.forEach(function(row){
+    // Agregar cat y marca a las listas de config si son nuevas
+    if(row.cat&&cats.indexOf(row.cat)<0) cats.push(row.cat);
+    if(row.brand&&row.brand&&brands.indexOf(row.brand)<0) brands.push(row.brand);
+
+    var i=db.findIndex(function(x){return x.ref&&x.ref===row.ref;});
+    var prod;
+    if(i>=0){
+      prod=Object.assign({},db[i],{
+        name:row.name,cat:row.cat,price:row.price,
+        stock:row.stock,min:row.min,brand:row.brand,
+        allowNoStock:row.allowNoStock,
+        photo:db[i].photo||''
+      });
+      db[i]=prod;u++;
+    } else {
+      prod=Object.assign({},row,{id:nid(db),photo:''});
+      db.push(prod);a++;
+    }
+    toSync.push(prod);
   });
-  saveDB(db);closeM('im');renderInventory();toast(`${a} nuevos · ${u} actualizados`,'ok');
+
+  // Guardar config con cats y brands nuevas
+  cfg.cats=cats;cfg.brands=brands;
+  saveCfg(cfg);
+  saveDB(db);
+
+  // Subir a Supabase
+  if(_sbReady){
+    toast('Guardando en Supabase...','ok');
+    var promises=toSync.map(function(prod){return pushProductToSB(prod);});
+    await Promise.all(promises);
+    pushConfigToSB(cfg);
+  }
+
+  closeM('im');
+  PAG.inv=1;
+  renderInventory();
+  toast(a+' nuevos · '+u+' actualizados'+(cfg.cats!==cats?' · categorías y marcas actualizadas':''),'ok');
 }
 
 // ─── EXCEL EXPORT ────────────────────────────────────────────────────────────
 function exportExcel(){
-  const rows=getDB().map(p=>({Referencia:p.ref,Nombre:p.name,Categoría:p.cat,Precio:p.price,Stock:p.stock,StockMinimo:p.min,Marca:p.brand||''}));
-  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Inventario');
-  XLSX.writeFile(wb,'inventario_motorepuestos.xlsx');toast('Excel exportado','ok');
+  var rows=getDB().map(function(p){return{
+    Referencia:p.ref||'',
+    Nombre:p.name,
+    Categoría:p.cat,
+    Precio:p.price,
+    Stock:p.stock,
+    StockMinimo:p.min||0,
+    Marca:p.brand||'',
+    VenderSinStock:p.allowNoStock?'SI':'NO'
+  };});
+  var wb=XLSX.utils.book_new();
+  var ws=XLSX.utils.json_to_sheet(rows);
+  // Ancho de columnas
+  ws['!cols']=[{wch:12},{wch:32},{wch:16},{wch:10},{wch:8},{wch:12},{wch:14},{wch:14}];
+  XLSX.utils.book_append_sheet(wb,ws,'Inventario');
+  XLSX.writeFile(wb,'inventario_motorepuestos.xlsx');
+  toast('Excel exportado con columna VenderSinStock','ok');
 }
 function exportOrders(){
   const rows=[];
