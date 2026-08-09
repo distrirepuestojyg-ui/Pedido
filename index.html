@@ -3177,13 +3177,30 @@ function markOrderSeen(id){
   if(seen.indexOf(id)<0){seen.push(id);_seenMem=seen;try{localStorage.setItem(SEEN_K,JSON.stringify(seen));}catch(e){}}
   // 2. Actualizar en caché _MEM
   var orders=getOrds();
-  var idx=orders.findIndex(function(o){return o.id===id;});
-  if(idx>=0){orders[idx].visto=true;saveOrds(orders);}
-  // 3. Actualizar en Supabase (todos los dispositivos lo verán)
+  var oidx=orders.findIndex(function(o){return o.id===id;});
+  if(oidx>=0){orders[oidx].visto=true;saveOrds(orders);}
+  // 3. Actualizar en Supabase con PATCH directo + log
   if(_sbReady){
-    sbPatch('pedidos','id=eq.'+id,{visto:true}).catch(function(e){
-      console.warn('Error marcando visto en SB:',e);
-    });
+    console.log('Marcando visto en SB: pedido',id);
+    var patchUrl=SB_URL+'/rest/v1/pedidos?id=eq.'+id;
+    sbFetch(patchUrl,{
+      method:'PATCH',
+      headers:Object.assign({'Prefer':'return=representation'},sbHeaders(true)),
+      body:JSON.stringify({visto:true})
+    },10000).then(function(r){
+      if(r.ok){
+        console.log('Pedido',id,'marcado como visto en SB ✓');
+        toast('Pedido marcado como visto','ok');
+      } else {
+        r.text().then(function(t){
+          console.warn('Error PATCH visto ('+r.status+'):',t);
+          // Si la columna no existe, intentar crearla
+          if(t.includes('column')&&t.includes('visto')){
+            toast('Ejecuta el SQL: ALTER TABLE pedidos ADD COLUMN visto boolean default false','err');
+          }
+        });
+      }
+    }).catch(function(e){console.warn('PATCH visto error:',e.message);});
   }
 }
 function markAllOrdersSeen(){
