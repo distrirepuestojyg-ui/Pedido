@@ -1853,6 +1853,46 @@ document.addEventListener('visibilitychange',function(){
   }
 });
 
+
+// ─── BACKGROUND SYNC — fetch a SB sin bloquear UI ────────────────────────────
+async function bgSync(table){
+  if(!_sbReady)return false;
+  try{
+    var r;
+    if(table==='productos'){
+      r=await sbGetAll('productos','?order=id.asc');
+      if(r&&r.length){localStorage.setItem(DBK,JSON.stringify(r.map(mapProd)));return true;}
+    } else if(table==='pedidos'){
+      r=await sbGet('pedidos','?order=created_at.desc');
+      if(r){
+        var sbOrds=r.map(mapOrder);
+        var localOrds=getOrds();
+        // Fusionar para no perder pedidos recién creados que aún no llegaron a SB
+        if(sbOrds.length>=localOrds.length){
+          localStorage.setItem(ORK,JSON.stringify(sbOrds));
+        } else {
+          var sbIds=sbOrds.map(function(o){return o.id;});
+          var onlyLocal=localOrds.filter(function(o){return sbIds.indexOf(o.id)<0;});
+          var fusionados=onlyLocal.concat(sbOrds);
+          fusionados.sort(function(a,b){return a.id<b.id?1:-1;});
+          localStorage.setItem(ORK,JSON.stringify(fusionados));
+        }
+        return true;
+      }
+    } else if(table==='configuracion'){
+      r=await sbGet('configuracion','?id=eq.main');
+      if(r&&r.length){localStorage.setItem(CFG_K,JSON.stringify(mapCfgFromSB(r[0],getCfg())));return true;}
+    } else if(table==='clientes'){
+      r=await sbGet('clientes','?order=name.asc');
+      if(r){localStorage.setItem(CLI_K,JSON.stringify(r));return true;}
+    } else if(table==='vendedores'){
+      r=await sbGet('vendedores','?order=name.asc');
+      if(r){localStorage.setItem(SEL_K,JSON.stringify(r));return true;}
+    }
+  }catch(e){console.warn('bgSync ('+table+'):',e.message);}
+  return false;
+}
+
 // ─── NAV ─────────────────────────────────────────────────────────────────────
 const NAV_CLIENT=[
   ['catalog','catalog','Catálogo'],
@@ -1895,15 +1935,23 @@ function goTo(id){
   document.querySelectorAll('[id^="bni-ico-"]').forEach(el=>el.style.color='var(--t3)');
   const lbl=document.getElementById('bnl-'+id);if(lbl)lbl.classList.add('on');
   const ico=document.getElementById('bni-ico-'+id);if(ico)ico.style.color='var(--or)';
-  if(id==='catalog'){renderCatalog();bgSync('productos').then(function(changed){if(changed)renderCatalog();});}
+  if(id==='catalog'){
+    renderCatalog();
+    if(_sbReady){bgSync('productos').then(function(){if(document.getElementById('sc-catalog').classList.contains('active'))renderCatalog();});}
+  }
   if(id==='cart')renderCart();
-  if(id==='inventory'){renderInventory();bgSync('productos').then(function(changed){if(changed)renderInventory();});}
+  if(id==='inventory'){
+    renderInventory();
+    if(_sbReady){bgSync('productos').then(function(){if(document.getElementById('sc-inventory').classList.contains('active'))renderInventory();});}
+  }
   if(id==='history'){
     renderHistory();
-    // Sync pedidos en background y re-render si hay nuevos
-    bgSync('pedidos').then(function(changed){
-      if(changed && document.getElementById('sc-history').classList.contains('active'))renderHistory();
-    });
+    // Siempre sincronizar pedidos desde SB al entrar (datos siempre frescos)
+    if(_sbReady){
+      bgSync('pedidos').then(function(changed){
+        if(document.getElementById('sc-history').classList.contains('active'))renderHistory();
+      });
+    }
     // Marcar todos como vistos después de 5 segundos
     setTimeout(function(){
       if(document.getElementById('sc-history').classList.contains('active')){
@@ -1983,13 +2031,7 @@ function renderCatalog(){
   const q=(document.getElementById('sq').value||'').toLowerCase();
   const sel=document.getElementById('cf');const pv=sel.value;
   const db=getDB();
-  // Si DB vacía y SB listo, cargar primero
-  if(!db.length&&_sbReady){
-    var grid=document.getElementById('pgrid');
-    if(grid)grid.innerHTML='<div style="color:var(--t3);font-size:13px;text-align:center;padding:40px;grid-column:1/-1">Cargando catálogo...</div>';
-    bgSync('productos').then(function(){renderCatalog();});
-    return;
-  }
+
   const cats=[...new Set(db.map(p=>p.cat))].sort();
   sel.innerHTML='<option value="">Todas</option>'+cats.map(c=>`<option${c===pv?' selected':''}>${c}</option>`).join('');
   const cat=sel.value;
@@ -2294,7 +2336,14 @@ async function ejecutarEnvioWA(){
   var newOrder={id:order.id,client:order.client,clientData:order.clientData||null,items:order.items,subtotal:order.subtotal,ivaPct:order.ivaPct,ivaNom:order.ivaNom,tax:order.tax,total:order.total,date:order.date};
   orders.unshift(newOrder);
   saveOrds(orders);
-  pushOrderToSB(newOrder);
+  // Subir a SB y confirmar
+  pushOrderToSB(newOrder).then(function(){
+    setTimeout(function(){
+      bgSync('pedidos').then(function(){
+        if(document.getElementById('sc-history')&&document.getElementById('sc-history').classList.contains('active'))renderHistory();
+      });
+    },2000);
+  });
 
   // 3. WhatsApp PRIMERO — mensaje corto, el detalle va en el PDF
   if(cfg.wa){
@@ -2989,12 +3038,7 @@ function clearInvSearch(){
 
 function renderInventory(){
   const db=getDB();
-  if(!db.length&&_sbReady){
-    var ilist=document.getElementById('ilist');
-    if(ilist)ilist.innerHTML='<div style="color:var(--t3);font-size:13px;text-align:center;padding:40px">Cargando inventario...</div>';
-    bgSync('productos').then(function(){renderInventory();});
-    return;
-  }
+
   const low=db.filter(p=>p.stock<=p.min&&p.stock>0).length;
   const out=db.filter(p=>p.stock===0).length;
   const val=db.reduce((a,p)=>a+p.price*p.stock,0);
@@ -3076,13 +3120,7 @@ function clearHistSearch(){
 
 function renderHistory(){
   var orders=getOrds();
-  // Si no hay datos en caché y SB está listo, cargar primero
-  if(!orders.length&&_sbReady){
-    var hlist=document.getElementById('hlist');
-    if(hlist)hlist.innerHTML='<div style="color:var(--t3);font-size:13px;text-align:center;padding:40px">Cargando pedidos...</div>';
-    bgSync('pedidos').then(function(){renderHistory();});
-    return;
-  }
+
   if(!orders.length){
     document.getElementById('hlist').innerHTML='<div style="color:var(--t3);font-size:13px;text-align:center;padding:40px">Sin pedidos aún</div>';
     renderPag('hist-pag',1,1,function(){});
