@@ -513,8 +513,8 @@ button{cursor:pointer;border:none;background:none}
 
   <!-- CART -->
   <div class="screen" id="sc-cart">
-    <!-- Barra de carritos múltiples -->
-    <div class="carts-bar" id="carts-bar">
+    <!-- Barra de carritos múltiples (solo admin/vendedor) -->
+    <div class="carts-bar" id="carts-bar" style="display:none">
       <!-- tabs generadas por JS -->
     </div>
     <div class="cclient">
@@ -2323,7 +2323,11 @@ function goTo(id){
     renderCatalog();
     if(_sbReady){bgSync('productos').then(function(){if(document.getElementById('sc-catalog').classList.contains('active'))renderCatalog();});}
   }
-  if(id==='cart'){loadCarts();renderCartsBar();renderCart();}
+  if(id==='cart'){
+    if(role==='admin'){loadCarts();renderCartsBar();}
+    else{renderCartsBar();} // cliente: solo ocultar barra
+    renderCart();
+  }
   if(id==='inventory'){
     renderInventory();
     if(_sbReady){bgSync('productos').then(function(){if(document.getElementById('sc-inventory').classList.contains('active'))renderInventory();});}
@@ -2539,6 +2543,9 @@ async function pushCartToSB(ct){
     var url=SB_URL+'/rest/v1/carritos?on_conflict=id';
     var body={
       id:ct.id,
+      session_id:_sessionId,
+      user_name:_currentUser?_currentUser.name:null,
+      user_role:role||'client',
       client_id:ct.client?ct.client.id||null:null,
       client_name:ct.client?ct.client.name||null:null,
       client_data:ct.client||null,
@@ -2561,10 +2568,29 @@ async function deleteCartFromSB(id){
 async function loadCartsFromSB(){
   if(!_sbReady)return null;
   try{
-    var r=await sbGet('carritos','?order=updated_at.desc');
+    // Filtrar solo los carritos de esta sesión/dispositivo
+    var r=await sbGet('carritos','?session_id=eq.'+_sessionId+'&order=updated_at.desc');
     return r;
   }catch(e){return null;}
 }
+
+
+// ─── SESSION ID — identifica cada dispositivo/navegador únicamente ───────────
+// Se genera una vez y se guarda en localStorage para siempre en ese dispositivo
+var _sessionId = (function(){
+  var key = 'mrp_session_id';
+  var existing;
+  try{ existing = localStorage.getItem(key); }catch(e){}
+  if(existing) return existing;
+  // Generar ID único: timestamp + random
+  var id = 'SES-' + Date.now() + '-' + Math.random().toString(36).slice(2,8).toUpperCase();
+  try{ localStorage.setItem(key, id); }catch(e){}
+  return id;
+})();
+
+// Clave de carrito específica para este dispositivo
+var CARTS_K  = 'mrp_carts3_' + _sessionId;
+var CARTID_K = 'mrp_active_cart3_' + _sessionId;
 
 // ─── MULTI-CARRITO ───────────────────────────────────────────────────────────
 // Cada carrito tiene: {id, client (obj), items: {sid: qty}}
@@ -2575,8 +2601,8 @@ function _genCartId(){ return 'cart_'+Date.now(); }
 
 // Guardar estado de carritos en memoria y localStorage
 function saveCarts(pushToSB){
-  _memSet('mrp_carts3', _carts);
-  _memSet('mrp_active_cart3', _activeCartId);
+  _memSet(CARTS_K, _carts);
+  _memSet(CARTID_K, _activeCartId);
   // Sync a Supabase si se pide explícitamente
   if(pushToSB&&_sbReady){
     _carts.forEach(function(ct){pushCartToSB(ct);});
@@ -2585,10 +2611,10 @@ function saveCarts(pushToSB){
 
 async function loadCarts(){
   // 1. Cargar desde memoria/localStorage inmediatamente
-  var saved = _memGet('mrp_carts3');
+  var saved = _memGet(CARTS_K);
   if(saved && saved.length){
     _carts = saved;
-    _activeCartId = _memGet('mrp_active_cart3') || _carts[0].id;
+    _activeCartId = _memGet(CARTID_K) || _carts[0].id;
   } else {
     var first = {id:_genCartId(), client:null, items:{}};
     _carts = [first];
@@ -2656,16 +2682,15 @@ function _saveActiveCartState(){
 
 // Añadir nuevo carrito
 function addNewCart(){
+  if(role!=='admin'){toast('Solo disponible para vendedores y administradores','err');return;}
   _saveActiveCartState();
-  var newCart = {id:_genCartId(), client:null, items:{}};
+  var newCart={id:_genCartId(),client:null,items:{}};
   _carts.push(newCart);
-  _activeCartId = newCart.id;
-  cart = {};
-  _selectedClient = null;
-  saveCarts(true);  // push a SB
+  _activeCartId=newCart.id;
+  cart={};_selectedClient=null;
+  saveCarts(false);
   try{clearSelectedClient();}catch(e){}
-  renderCartsBar();
-  renderCart();
+  renderCartsBar();renderCart();
   toast('Nuevo carrito abierto','ok');
 }
 
@@ -2711,6 +2736,9 @@ function closeCart(cartId){
 function renderCartsBar(){
   var bar = document.getElementById('carts-bar');
   if(!bar)return;
+  // Solo mostrar barra de multi-carrito para admin/vendedores
+  if(role !== 'admin'){bar.style.display='none';return;}
+  bar.style.display='flex';
   bar.innerHTML = '';
   _carts.forEach(function(ct,i){
     var nItems = Object.keys(ct.items||{}).length;
@@ -2994,19 +3022,19 @@ async function ejecutarEnvioWA(){
 
   // Eliminar carrito activo de SB y de la lista
   var cartIdToClose=_activeCartId;
-  deleteCartFromSB(cartIdToClose);
+  if(role==='admin')deleteCartFromSB(cartIdToClose);
 
   // Resetear completamente el carrito activo en memoria
   var activeIdx=_carts.findIndex(function(c){return c.id===cartIdToClose;});
   if(activeIdx>=0){
-    if(_carts.length>1){
-      // Más de un carrito: cerrar este y activar el anterior
+    if(role==='admin'&&_carts.length>1){
+      // Admin con múltiples carritos: cerrar este tab
       _carts.splice(activeIdx,1);
       _activeCartId=(_carts[Math.max(0,activeIdx-1)]||_carts[0]).id;
     } else {
-      // Solo un carrito: limpiarlo y reutilizarlo (no eliminar)
-      _carts[0]={id:_carts[0].id,client:null,items:{}};
-      _activeCartId=_carts[0].id;
+      // Cliente invitado o último carrito: limpiar y reutilizar
+      _carts[activeIdx]={id:_carts[activeIdx].id,client:null,items:{}};
+      _activeCartId=_carts[activeIdx].id;
     }
   }
 
