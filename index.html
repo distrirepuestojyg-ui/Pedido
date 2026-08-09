@@ -415,9 +415,23 @@ button{cursor:pointer;border:none;background:none}
 .pprice-badge{font-size:9px;font-weight:700;background:#e8f5ef;color:#0f6e56;border:1px solid #5dcaa5;border-radius:99px;padding:1px 7px;white-space:nowrap}
 .f-dscto-wrap{display:flex;align-items:center;gap:8px}
 .f-dscto-preview{font-size:12px;color:var(--tl);font-weight:500;min-width:80px}
+.carts-bar{display:flex;align-items:stretch;gap:6px;overflow-x:auto;background:var(--bg2);border-bottom:2px solid var(--b);flex-shrink:0;padding:10px 12px 0;min-height:52px;scrollbar-width:none}
+.carts-bar::-webkit-scrollbar{display:none}
+.cart-tab{display:flex;align-items:center;gap:7px;padding:7px 11px 9px;border-radius:10px 10px 0 0;font-size:11px;font-weight:600;color:var(--t3);cursor:pointer;white-space:nowrap;border:1px solid transparent;border-bottom:none;transition:all .18s;flex-shrink:0;position:relative;background:var(--bg3);letter-spacing:.1px}
+.cart-tab.active{color:var(--or);background:var(--bg);border-color:var(--b);border-bottom-color:var(--bg);margin-bottom:-2px;z-index:2}
+.cart-tab-ico{opacity:.7}
+.cart-tab.active .cart-tab-ico{opacity:1}
+.cart-tab-name{max-width:80px;overflow:hidden;text-overflow:ellipsis}
+.cart-tab-close{width:16px;height:16px;border-radius:50%;background:var(--bg2);border:1px solid var(--b);color:var(--t3);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:11px;padding:0;line-height:1;transition:all .15s;flex-shrink:0}
+.cart-tab-close:active{background:var(--rdd);color:var(--rd);border-color:var(--rd)}
+.cart-tab-badge{background:var(--or);color:#fff;border-radius:99px;font-size:8px;font-weight:700;padding:1px 5px;min-width:15px;text-align:center;line-height:1.6}
+.cart-tab.active .cart-tab-badge{box-shadow:0 0 0 2px var(--bg)}
+.cart-add-btn{flex-shrink:0;align-self:center;padding:6px 10px;border-radius:8px;background:none;border:1px dashed var(--b2);color:var(--t3);cursor:pointer;font-size:11px;font-weight:500;display:flex;align-items:center;gap:4px;transition:all .15s;white-space:nowrap;margin-bottom:2px}
+.cart-add-btn:active{border-color:var(--or);color:var(--or)}
 </style>
 </head>
 <body>
+
 
 
 <!-- LOGIN -->
@@ -477,6 +491,10 @@ button{cursor:pointer;border:none;background:none}
 
   <!-- CART -->
   <div class="screen" id="sc-cart">
+    <!-- Barra de carritos múltiples -->
+    <div class="carts-bar" id="carts-bar">
+      <!-- tabs generadas por JS -->
+    </div>
     <div class="cclient">
       <!-- Cliente seleccionado (aparece cuando se escoge uno) -->
       <div class="cli-selected" id="cli-selected-box">
@@ -1745,7 +1763,7 @@ async function boot(){
   const pill=document.getElementById('rpill');
   pill.textContent=role==='admin'?'⚙ Admin':'🛒 Cliente';
   pill.className='rpill '+(role==='admin'?'rp-a':'rp-c');
-  applyStoredTheme();buildNav();goTo('catalog');
+  applyStoredTheme();loadCarts();buildNav();goTo('catalog');
   // Sincronizar desde Supabase al entrar
   if(_sbReady){
     syncFromSupabase().then(function(){
@@ -1959,7 +1977,7 @@ function goTo(id){
     renderCatalog();
     if(_sbReady){bgSync('productos').then(function(){if(document.getElementById('sc-catalog').classList.contains('active'))renderCatalog();});}
   }
-  if(id==='cart')renderCart();
+  if(id==='cart'){loadCarts();renderCartsBar();renderCart();}
   if(id==='inventory'){
     renderInventory();
     if(_sbReady){bgSync('productos').then(function(){if(document.getElementById('sc-inventory').classList.contains('active'))renderInventory();});}
@@ -2153,6 +2171,7 @@ function addToCartQty(id,qty){
     toast(qty>1?qty+' x '+p.name+' ('+precioMostrar+')':p.name+' agregado','ok');
   }
   cart[sid]=newQty;
+  _saveActiveCartState();
   updateBadge();
 }
 
@@ -2165,7 +2184,230 @@ function updateBadge(){
   b.textContent=n;
 }
 
+
+
+// ─── CARRITOS EN SUPABASE ────────────────────────────────────────────────────
+async function pushCartToSB(ct){
+  if(!_sbReady)return;
+  try{
+    var url=SB_URL+'/rest/v1/carritos?on_conflict=id';
+    var body={
+      id:ct.id,
+      client_id:ct.client?ct.client.id||null:null,
+      client_name:ct.client?ct.client.name||null:null,
+      client_data:ct.client||null,
+      items:ct.items||{},
+      updated_at:new Date().toISOString()
+    };
+    await sbFetch(url,{
+      method:'POST',
+      headers:Object.assign({'Prefer':'return=minimal,resolution=merge-duplicates'},sbHeaders(true)),
+      body:JSON.stringify([body])
+    },10000);
+  }catch(e){console.warn('pushCartToSB:',e.message);}
+}
+
+async function deleteCartFromSB(id){
+  if(!_sbReady)return;
+  try{await sbDelete('carritos','id=eq.'+id);}catch(e){}
+}
+
+async function loadCartsFromSB(){
+  if(!_sbReady)return null;
+  try{
+    var r=await sbGet('carritos','?order=updated_at.desc');
+    return r;
+  }catch(e){return null;}
+}
+
+// ─── MULTI-CARRITO ───────────────────────────────────────────────────────────
+// Cada carrito tiene: {id, client (obj), items: {sid: qty}}
+var _carts = [];       // array de carritos abiertos
+var _activeCartId = null;  // id del carrito activo
+
+function _genCartId(){ return 'cart_'+Date.now(); }
+
+// Guardar estado de carritos en memoria y localStorage
+function saveCarts(pushToSB){
+  _memSet('mrp_carts3', _carts);
+  _memSet('mrp_active_cart3', _activeCartId);
+  // Sync a Supabase si se pide explícitamente
+  if(pushToSB&&_sbReady){
+    _carts.forEach(function(ct){pushCartToSB(ct);});
+  }
+}
+
+async function loadCarts(){
+  // 1. Cargar desde memoria/localStorage inmediatamente
+  var saved = _memGet('mrp_carts3');
+  if(saved && saved.length){
+    _carts = saved;
+    _activeCartId = _memGet('mrp_active_cart3') || _carts[0].id;
+  } else {
+    var first = {id:_genCartId(), client:null, items:{}};
+    _carts = [first];
+    _activeCartId = first.id;
+  }
+  _syncActiveCart();
+
+  // 2. Actualizar desde Supabase en background
+  if(_sbReady){
+    loadCartsFromSB().then(function(sbCarts){
+      if(!sbCarts||!sbCarts.length)return;
+      // Fusionar: SB es la fuente de verdad para carritos de otros dispositivos
+      var sbMapped=sbCarts.map(function(ct){return{
+        id:ct.id,
+        client:ct.client_data||null,
+        items:ct.items||{}
+      };});
+      // Preservar carritos locales que no están en SB aún
+      var sbIds=sbMapped.map(function(c){return c.id;});
+      var localOnly=_carts.filter(function(c){
+        return sbIds.indexOf(c.id)<0 && Object.keys(c.items||{}).length>0;
+      });
+      _carts=localOnly.concat(sbMapped);
+      if(!_carts.length){_carts=[{id:_genCartId(),client:null,items:{}}];}
+      // Mantener carrito activo si sigue existiendo
+      if(!_carts.find(function(c){return c.id===_activeCartId;})){
+        _activeCartId=_carts[0].id;
+      }
+      saveCarts(false);
+      _syncActiveCart();
+      renderCartsBar();
+      renderCart();
+    });
+  }
+}
+
+// Sincronizar el carrito activo con la variable global cart y _selectedClient
+function _syncActiveCart(){
+  var active = _carts.find(function(c){return c.id===_activeCartId;});
+  if(!active)return;
+  cart = active.items;
+  _selectedClient = active.client;
+  // Actualizar UI del cliente en el campo
+  if(active.client){
+    selectClient(active.client);
+  } else {
+    try{clearSelectedClient();}catch(e){}
+  }
+}
+
+// Guardar estado del carrito activo — con debounce a SB
+var _saveCartTimer=null;
+function _saveActiveCartState(){
+  var active = _carts.find(function(c){return c.id===_activeCartId;});
+  if(!active)return;
+  active.items = cart;
+  active.client = _selectedClient;
+  saveCarts(false); // local inmediato
+  // Debounce de 1.5s para no saturar SB al agregar items rápido
+  clearTimeout(_saveCartTimer);
+  _saveCartTimer=setTimeout(function(){
+    pushCartToSB(active);
+  },1500);
+}
+
+// Añadir nuevo carrito
+function addNewCart(){
+  _saveActiveCartState();
+  var newCart = {id:_genCartId(), client:null, items:{}};
+  _carts.push(newCart);
+  _activeCartId = newCart.id;
+  cart = {};
+  _selectedClient = null;
+  saveCarts(true);  // push a SB
+  try{clearSelectedClient();}catch(e){}
+  renderCartsBar();
+  renderCart();
+  toast('Nuevo carrito abierto','ok');
+}
+
+// Cambiar al carrito con ese id
+function switchCart(cartId){
+  if(cartId===_activeCartId)return;
+  _saveActiveCartState();
+  _activeCartId = cartId;
+  _syncActiveCart();
+  saveCarts(false);
+  renderCartsBar();
+  renderCart();
+}
+
+// Cerrar/eliminar un carrito
+function closeCart(cartId){
+  if(_carts.length===1){
+    // Solo queda uno: limpiarlo en vez de cerrarlo
+    _carts[0].items = {};
+    _carts[0].client = null;
+    _activeCartId = _carts[0].id;
+    cart = {};
+    _selectedClient = null;
+    saveCarts();
+    try{clearSelectedClient();}catch(e){}
+    renderCartsBar();
+    renderCart();
+    return;
+  }
+  var idx = _carts.findIndex(function(c){return c.id===cartId;});
+  _carts.splice(idx,1);
+  // Activar el carrito anterior o el primero
+  _activeCartId = (_carts[Math.max(0,idx-1)]||_carts[0]).id;
+  _syncActiveCart();
+  // Eliminar de SB el carrito cerrado
+  deleteCartFromSB(cartId);
+  saveCarts(false);
+  renderCartsBar();
+  renderCart();
+}
+
+// Renderizar la barra de tabs
+function renderCartsBar(){
+  var bar = document.getElementById('carts-bar');
+  if(!bar)return;
+  bar.innerHTML = '';
+  _carts.forEach(function(ct,i){
+    var nItems = Object.keys(ct.items||{}).length;
+    var hasClient = ct.client && ct.client.name;
+    var firstName = hasClient ? ct.client.name.split(' ')[0] : 'Carrito '+(i+1);
+    var isActive = ct.id===_activeCartId;
+
+    var tab = document.createElement('div');
+    tab.className = 'cart-tab' + (isActive?' active':'');
+    tab.setAttribute('title', hasClient ? ct.client.name : 'Sin cliente asignado');
+
+    // Ícono: persona si tiene cliente, carrito si no
+    var ico = hasClient
+      ? '<svg class="cart-tab-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>'
+      : '<svg class="cart-tab-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>';
+
+    tab.innerHTML = ico
+      + '<span class="cart-tab-name">'+firstName+'</span>'
+      + (nItems ? '<span class="cart-tab-badge">'+nItems+'</span>' : '')
+      + '<button class="cart-tab-close" title="Cerrar">×</button>';
+
+    tab.onclick = function(e){
+      if(e.target.tagName==='BUTTON')return;
+      switchCart(ct.id);
+    };
+    tab.querySelector('.cart-tab-close').onclick = function(e){
+      e.stopPropagation();
+      e.preventDefault();
+      closeCart(ct.id);
+    };
+    bar.appendChild(tab);
+  });
+
+  // Botón añadir nuevo carrito
+  var addBtn = document.createElement('button');
+  addBtn.className = 'cart-add-btn';
+  addBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Nuevo carrito';
+  addBtn.onclick = addNewCart;
+  bar.appendChild(addBtn);
+}
+
 function renderCart(){
+  renderCartsBar();
   var keys=Object.keys(cart),db=getDB(),cfg=getCfg();
   var body=document.getElementById('cbody');
   var cbtn=document.getElementById('cbtn');
@@ -2248,12 +2490,18 @@ function renderCart(){
 
 function chQty(id,d){
   var sid=String(id);
-  cart[sid]=(cart[sid]||0)+d;
-  const p=getDB().find(x=>String(x.id)===sid);
-  if(cart[sid]<=0)delete cart[sid];else if(p&&cart[sid]>p.stock)cart[sid]=p.stock;
+  var current=cart[sid]||0;
+  var newQty=current+d;
+  var p=getDB().find(function(x){return String(x.id)===sid;});
+  // Mínimo 1 (no eliminar con -)
+  if(newQty<1){newQty=1;}
+  // Máximo: stock disponible (solo si no permite venta sin stock)
+  if(p&&!p.allowNoStock&&p.stock>0&&newQty>p.stock){newQty=p.stock;}
+  cart[sid]=newQty;
+  _saveActiveCartState();
   updateBadge();renderCart();
 }
-function rmItem(id){delete cart[String(id)];updateBadge();renderCart();}
+function rmItem(id){delete cart[String(id)];_saveActiveCartState();updateBadge();renderCart();}
 
 // ─── CONFIRM ORDER ───────────────────────────────────────────────────────────
 // ─── PEDIDO PENDIENTE (mientras el cliente confirma en WA) ──────────────────
@@ -2397,8 +2645,8 @@ async function ejecutarEnvioWA(){
   // 5. Limpiar
   cerrarWAModal();
   cart={};
-  _selectedClient=null;
-  clearSelectedClient();
+  // Cerrar el carrito activo tras confirmar el pedido
+  closeCart(_activeCartId);
   document.getElementById('cname').value='';
   updateBadge();renderCart();renderCatalog();
   _ordenPendiente=null;
@@ -3016,6 +3264,10 @@ function onClientSearch(inp){
 
 function selectClient(cli){
   _selectedClient=cli;
+  // Guardar cliente en carrito activo
+  var active=_carts&&_carts.find(function(c){return c.id===_activeCartId;});
+  if(active){active.client=cli;saveCarts();}
+  renderCartsBar();
   // Mostrar box seleccionado
   var box=document.getElementById('cli-selected-box');
   var nm=document.getElementById('cli-selected-name');
@@ -3037,10 +3289,16 @@ function selectClient(cli){
 
 function clearSelectedClient(){
   _selectedClient=null;
-  document.getElementById('cli-selected-box').style.display='none';
-  document.getElementById('cli-search-wrap').style.display='block';
+  var box=document.getElementById('cli-selected-box');
+  var wrap=document.getElementById('cli-search-wrap');
   var inp=document.getElementById('cname');
-  inp.value='';inp.focus();
+  if(box)box.style.display='none';
+  if(wrap)wrap.style.display='block';
+  if(inp){inp.value='';}
+  // Actualizar carrito activo
+  var active=_carts&&_carts.find(function(c){return c.id===_activeCartId;});
+  if(active){active.client=null;saveCarts();}
+  renderCartsBar();
 }
 
 // Cerrar dropdown al tocar fuera
