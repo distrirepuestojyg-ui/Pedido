@@ -456,6 +456,7 @@ button{cursor:pointer;border:none;background:none}
 
 
 
+
 <!-- LOGIN -->
 <div id="login-screen">
   <!-- Acceso admin discreto — esquina superior izquierda -->
@@ -3646,11 +3647,19 @@ function onClientSearch(inp){
   dropdown.innerHTML='';
   matches.forEach(function(cli){
     var opt=document.createElement('div');opt.className='cli-option';
-    var nm=document.createElement('div');nm.className='cli-option-name';nm.textContent=cli.name;
-    var sb=document.createElement('div');sb.className='cli-option-sub';
-    var info=[];if(cli.doc)info.push(cli.doc);if(cli.tel)info.push(cli.tel);if(cli.city)info.push(cli.city);
-    sb.textContent=info.join(' · ');
-    opt.appendChild(nm);opt.appendChild(sb);
+    // Avatar
+    var av=document.createElement('div');av.className='cli-opt-avatar';
+    av.textContent=(cli.name||'?')[0].toUpperCase();
+    // Info
+    var info=document.createElement('div');info.className='cli-opt-info';
+    var nm=document.createElement('div');nm.className='cli-opt-name';nm.textContent=cli.name;
+    var sub=document.createElement('div');sub.className='cli-opt-sub';
+    var parts=[];
+    if(cli.doc)parts.push(cli.doc);
+    if(cli.city)parts.push(cli.city);
+    sub.textContent=parts.join(' · ');
+    info.appendChild(nm);info.appendChild(sub);
+    opt.appendChild(av);opt.appendChild(info);
     opt.onclick=function(){selectClient(cli);};
     dropdown.appendChild(opt);
   });
@@ -3665,8 +3674,7 @@ function onClientSearch(inp){
   }
   // Opción crear cliente nuevo (siempre al final)
   var newOpt=document.createElement('div');newOpt.className='cli-option-new';
-  newOpt.style.cssText='border-top:1px solid var(--b);margin-top:4px';
-  newOpt.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Crear cliente "'+q+'"';
+  newOpt.innerHTML='<div style="width:34px;height:34px;border-radius:50%;background:var(--bg3);border:2px dashed var(--or);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--or)" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></div><div><div style="font-size:12px;font-weight:600;color:var(--or)">Crear nuevo cliente</div><div style="font-size:10px;color:var(--t3);margin-top:1px">"'+q+'"</div></div>';
   newOpt.onclick=function(){
     dropdown.classList.remove('open');
     abrirQuickClient(q);
