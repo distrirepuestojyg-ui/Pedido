@@ -416,6 +416,7 @@ button{cursor:pointer;border:none;background:none}
 </head>
 <body>
 
+
 <!-- LOGIN -->
 <div id="login-screen">
   <!-- Acceso admin discreto — esquina superior izquierda -->
@@ -3186,18 +3187,31 @@ function generarPDF(order,cfg){
     +'</style></head><body>'
     +'<div class="hdr">'
     +'  <div><div class="coname">'+empresa+'</div><div class="coinfo">'+infoLine+'</div></div>'
-    +'  <div class="rside"><div class="badge">'+order.id+'</div><p>Fecha: '+order.date+'<br>Estado: <span style="color:#1aad80;font-weight:600">CONFIRMADO</span></p></div>'
+    +'  <div class="rside"><div class="badge">'+order.id+'</div>'
+    +'  <p>Fecha: '+order.date+'<br>Estado: <span style="color:#1aad80;font-weight:600">✓ CONFIRMADO</span></p></div>'
     +'</div>'
-    +'<div class="cbox">'
-    +'  <div class="f"><span>Cliente</span><strong>'+(order.clientData&&order.clientData.name?order.clientData.name:order.client)+'</strong></div>'
-    +(order.clientData&&order.clientData.doc?'  <div class="f"><span>CC/NIT</span><strong>'+order.clientData.doc+'</strong></div>':'')
-    +(order.clientData&&order.clientData.tel?'  <div class="f"><span>Tel</span><strong>'+order.clientData.tel+'</strong></div>':'')
-    +(order.clientData&&order.clientData.city?'  <div class="f"><span>Ciudad</span><strong>'+order.clientData.city+'</strong></div>':'')
-    +(order.clientData&&order.clientData.addr?'  <div class="f"><span>Dirección</span><strong>'+order.clientData.addr+'</strong></div>':'')
-    +(order.clientData&&order.clientData.seller?'  <div class="f"><span>Vendedor</span><strong>'+order.clientData.seller+'</strong></div>':'')
-    +'  <div class="f"><span>Pedido</span><strong>'+order.id+'</strong></div>'
-    +'  <div class="f"><span>Fecha</span><strong>'+order.date+'</strong></div>'
-    +'</div>'
+    // Buscar datos del cliente si no vienen en clientData
+    + (function(){
+      var cd=order.clientData;
+      if(!cd||!cd.doc){
+        // Intentar encontrar en maestro local por nombre
+        var found=getClients().find(function(x){return x.name===order.client;});
+        if(found)cd=found;
+      }
+      var nombre=cd&&cd.name?cd.name:order.client;
+      var rows2='<div class="cbox">'
+        +'<div class="cbox-title">Información del cliente</div>'
+        +'<div class="cbox-grid">'
+        +'<div class="f"><span>Cliente</span><strong>'+nombre+'</strong></div>'
+        +(cd&&cd.doc?'<div class="f"><span>CC / NIT</span><strong>'+cd.doc+'</strong></div>':'<div class="f"><span>CC / NIT</span><strong>—</strong></div>')
+        +(cd&&cd.tel?'<div class="f"><span>Teléfono</span><strong>'+cd.tel+'</strong></div>':'<div class="f"><span>Teléfono</span><strong>—</strong></div>')
+        +(cd&&cd.city?'<div class="f"><span>Ciudad</span><strong>'+cd.city+'</strong></div>':'<div class="f"><span>Ciudad</span><strong>—</strong></div>')
+        +(cd&&cd.seller?'<div class="f"><span>Vendedor</span><strong>'+cd.seller+'</strong></div>':'')
+        +'</div>'
+        +(cd&&cd.addr?'<div style="margin-top:8px;padding-top:8px;border-top:1px solid #e8d8cc"><div class="f"><span>Dirección</span><strong>'+cd.addr+'</strong></div></div>':'')
+        +'</div>';
+      return rows2;
+    })()
     +'<table>'
     +'<thead><tr>'
     +'<th style="width:13%">Ref.</th><th>Producto</th>'
