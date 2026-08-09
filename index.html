@@ -2858,7 +2858,17 @@ function renderCart(){
       dscInp.value=dsctoAplicado>0?dsctoAplicado:'';
       dscInp.title='Descuento % para este ítem';
       (function(s,inp){
-        inp.oninput=function(){setItemDscto(s,inp.value);};
+        var _t=null;
+        // Usar onblur y Enter para aplicar — no re-renderizar mientras escribe
+        inp.onblur=function(){setItemDscto(s,inp.value);};
+        inp.onkeydown=function(e){
+          if(e.key==='Enter'){e.preventDefault();inp.blur();}
+        };
+        // Debounce: aplicar 800ms después de dejar de escribir
+        inp.oninput=function(){
+          clearTimeout(_t);
+          _t=setTimeout(function(){setItemDscto(s,inp.value);},800);
+        };
       })(sid,dscInp);
       var dscPct=document.createElement('span');dscPct.className='ci-dscto-pct';dscPct.textContent='%';
       var dscPrev=document.createElement('span');dscPrev.className='ci-dscto-preview';
