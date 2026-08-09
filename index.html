@@ -1522,26 +1522,17 @@ function mapCfgFromSB(sc,existing){
 }
 
 // ─── GETTERS — leen de Supabase si está listo, si no de localStorage ────────
-async function getDBAsync(){
-  if(_sbReady){
-    var r=await sbGetAll('productos','?order=id.asc');
-    if(r&&r.length){var d=r.map(mapProd);localStorage.setItem(DBK,JSON.stringify(d));return d;}
-  }
-  var local=localStorage.getItem(DBK);return local?JSON.parse(local):SEED;
+function getDBAsync(){
+  // Siempre retorna caché local INMEDIATAMENTE (sin await)
+  var local=localStorage.getItem(DBK);
+  return Promise.resolve(local?JSON.parse(local):SEED);
 }
-async function getOrdsAsync(){
-  if(_sbReady){
-    var r=await sbGet('pedidos','?order=created_at.desc');
-    if(r){var d=r.map(mapOrder);localStorage.setItem(ORK,JSON.stringify(d));return d;}
-  }
-  var local=localStorage.getItem(ORK);return local?JSON.parse(local):[];
+function getOrdsAsync(){
+  var local=localStorage.getItem(ORK);
+  return Promise.resolve(local?JSON.parse(local):[]);
 }
-async function getCfgAsync(){
-  if(_sbReady){
-    var r=await sbGet('configuracion','?id=eq.main');
-    if(r&&r.length){var existing=getCfg();var d=mapCfgFromSB(r[0],existing);localStorage.setItem(CFG_K,JSON.stringify(d));return d;}
-  }
-  return getCfg();
+function getCfgAsync(){
+  return Promise.resolve(getCfg());
 }
 
 // ─── GETTERS SÍNCRONOS — leen solo de localStorage (caché) ──────────────────
@@ -1619,6 +1610,8 @@ async function syncFromSupabase(){
     applyLogo(freshCfg.logo||'');
     applyBrandName(freshCfg.empresa||'MotoRepuestos Pro');
     updateLoginScreen();
+    // Re-render pantalla activa con datos frescos
+    refreshCurrentScreen();
   }
 }
 
@@ -1733,7 +1726,7 @@ async function boot(){
   const pill=document.getElementById('rpill');
   pill.textContent=role==='admin'?'⚙ Admin':'🛒 Cliente';
   pill.className='rpill '+(role==='admin'?'rp-a':'rp-c');
-  await applyStoredTheme();buildNav();goTo('catalog');
+  applyStoredTheme();buildNav();goTo('catalog');
   // Sincronizar desde Supabase al entrar
   if(_sbReady){
     syncFromSupabase().then(function(){
@@ -1780,7 +1773,7 @@ function refreshCurrentScreen(){
 
 function startRealtime(){
   if(!_sbReady)return;
-  if(_realtimeWS&&_realtimeWS.readyState===1)return; // ya conectado
+  if(_realtimeWS&&_realtimeWS.readyState===1)return; // ─── PERFORMANCE: Cache-first + Background Sync conectado
   if(_realtimeRetry){clearTimeout(_realtimeRetry);_realtimeRetry=null;}
 
   var wsUrl=SB_URL.replace('https://','wss://').replace('http://','ws://')
@@ -1903,9 +1896,9 @@ function goTo(id){
   document.querySelectorAll('[id^="bni-ico-"]').forEach(el=>el.style.color='var(--t3)');
   const lbl=document.getElementById('bnl-'+id);if(lbl)lbl.classList.add('on');
   const ico=document.getElementById('bni-ico-'+id);if(ico)ico.style.color='var(--or)';
-  if(id==='catalog')renderCatalog();
+  if(id==='catalog'){renderCatalog();bgSync('productos').then(function(changed){if(changed)renderCatalog();});}
   if(id==='cart')renderCart();
-  if(id==='inventory')renderInventory();
+  if(id==='inventory'){renderInventory();bgSync('productos').then(function(changed){if(changed)renderInventory();});}
   if(id==='history'){
     renderHistory();
     // Marcar todos como vistos después de 5 segundos de estar en la pantalla
@@ -1984,10 +1977,10 @@ function renderPag(containerId, current, total, onPageFn){
 var _lastCatFilter='';
 var _lastCatQuery='';
 
-async function renderCatalog(){
+function renderCatalog(){
   const q=(document.getElementById('sq').value||'').toLowerCase();
   const sel=document.getElementById('cf');const pv=sel.value;
-  const db=await getDBAsync();
+  const db=getDB();
   const cats=[...new Set(db.map(p=>p.cat))].sort();
   sel.innerHTML='<option value="">Todas</option>'+cats.map(c=>`<option${c===pv?' selected':''}>${c}</option>`).join('');
   const cat=sel.value;
@@ -2227,7 +2220,7 @@ async function confirmOrder(){
     sub+=pFinal*qty;
     return{name:p.name,ref:p.ref||'',qty:qty,price:pFinal,originalPrice:p.price,dscto:p.dscto||0};
   }).filter(function(x){return x!==null;});
-  var orders=await getOrdsAsync();
+  var orders=getOrds();
   var consec='PED-'+String(orders.length+1).padStart(4,'0');
   var tax=sub*(ivaPct/100);
   // Calcular descuento total para el resumen del pedido
@@ -2413,12 +2406,8 @@ function getClients(){var r=localStorage.getItem(CLI_K);return r?JSON.parse(r):[
 function saveClients(d){localStorage.setItem(CLI_K,JSON.stringify(d));}
 
 // Getters async desde Supabase
-async function getClientsAsync(){
-  if(_sbReady){
-    var r=await sbGet('clientes','?order=name.asc');
-    if(r){localStorage.setItem(CLI_K,JSON.stringify(r));return r;}
-  }
-  return getClients();
+function getClientsAsync(){
+  return Promise.resolve(getClients());
 }
 
 async function pushClientToSB(cli){
@@ -2690,9 +2679,9 @@ function deleteSeller(id){
   toast('Vendedor eliminado');
 }
 
-async function renderSellers(){
+function renderSellers(){
   var q=(document.getElementById('sel-search')||{value:''}).value.toLowerCase().trim();
-  var all=await getSellersAsync();
+  var all=getSellers();
   var list=q?all.filter(function(s){return [s.name,s.zone||''].join(' ').toLowerCase().includes(q);}):all;
   var container=document.getElementById('sellers-list');
   if(!list.length){
@@ -2839,9 +2828,9 @@ async function doImportClients(){
 }
 
 // ── RENDER LISTA ADMIN ────────────────────────────────────────────────────────
-async function renderClients(){
+function renderClients(){
   var q=(document.getElementById('cli-search-admin')||{value:''}).value.toLowerCase().trim();
-  var all=await getClientsAsync();
+  var all=getClients();
   var list=q?all.filter(function(c){
     return [c.name,c.doc||'',c.city||'',c.seller||''].join(' ').toLowerCase().includes(q);
   }):all;
@@ -2989,8 +2978,8 @@ function clearInvSearch(){
   if(inp) inp.focus();
 }
 
-async function renderInventory(){
-  const db=await getDBAsync();
+function renderInventory(){
+  const db=getDB();
   const low=db.filter(p=>p.stock<=p.min&&p.stock>0).length;
   const out=db.filter(p=>p.stock===0).length;
   const val=db.reduce((a,p)=>a+p.price*p.stock,0);
@@ -3070,8 +3059,8 @@ function clearHistSearch(){
   if(inp) inp.focus();
 }
 
-async function renderHistory(){
-  const orders=await getOrdsAsync();
+function renderHistory(){
+  const orders=getOrds();
   if(!orders.length){
     document.getElementById('hlist').innerHTML='<div style="color:var(--t3);font-size:13px;text-align:center;padding:40px">Sin pedidos aún</div>';
     renderPag('hist-pag',1,1,function(){});
@@ -3300,11 +3289,8 @@ function applyTheme(th){
   document.body.style.background=th.bg;
 }
 
-async function applyStoredTheme(){
-  // Cargar config fresca de Supabase si está disponible, si no del cache
-  var cfg;
-  if(_sbReady){try{cfg=await getCfgAsync();}catch(e){cfg=getCfg();}}
-  else{cfg=getCfg();}
+function applyStoredTheme(){
+  var cfg=getCfg();
   var th=BG_THEMES[cfg.bgTheme||'dark']||BG_THEMES.dark;
   applyTheme(th);
   applyLogo(cfg.logo||'');
@@ -3426,8 +3412,8 @@ function removeListItem(type,idx){
 }
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
-async function loadConfig(){
-  var cfg=await getCfgAsync();
+function loadConfig(){
+  var cfg=getCfg();
   document.getElementById('cfg-iva').value=cfg.iva!=null?cfg.iva:19;
   document.getElementById('cfg-iva-nom').value=cfg.ivaNom||'IVA';
   document.getElementById('cfg-wa').value=cfg.wa||'';
@@ -3920,10 +3906,10 @@ if ('serviceWorker' in navigator) {
 
 // ─── INIT ────────────────────────────────────────────────────────────────────
 (async function(){
-  await applyStoredTheme(); // carga config de SB (incluye tema, logo, banner, empresa)
+  applyStoredTheme();
   checkIOSInstall();
   var r=detectRole();
-  if(r){role=r;await boot();}
+  if(r){role=r;boot();}
 })();
 </script>
 </body>
