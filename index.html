@@ -2062,22 +2062,16 @@ function _bootWithUser(user){
 }
 
 function _buildNavForUser(user){
-  var perms=user.perms||ALL_PERMS.map(function(p){return p.id;});
-  // Filtrar tabs según permisos y reusar buildNav con los tabs filtrados
-  var _origNav=NAV_ADMIN;
-  var _filteredNav=_origNav.filter(function(t){return perms.indexOf(t[0])>=0;});
-  // Temporarily override buildNav tabs
-  var nav=document.getElementById('bnav');
-  if(!nav)return;
-  nav.innerHTML=_filteredNav.map(function(item){
-    var id=item[0];var icon=item[1];var lbl=item[2];
-    var cartBadge=(id==='cart')?('<span class="cbadge" id="cbadge">0</span>'):'';
-    var icoSpan='<span style="color:var(--t3)" id="bni-ico-'+id+'">'+(SVG[icon]||'')+'</span>';
-    var icoWrap='<div style="position:relative;width:26px;height:26px;display:flex;align-items:center;justify-content:center">'+icoSpan+cartBadge+'</div>';
-    var lblSpan='<span class="bni-lbl" id="bnl-'+id+'">'+lbl+'</span>';
-    return '<div class="bni" onclick="goTo('+JSON.stringify(id)+')" id="bn-'+id+'">'+icoWrap+lblSpan+'</div>';
-  }).join('');
-  if(_filteredNav.length){loadCarts();goTo(_filteredNav[0][0]);}
+  // Normalizar perms: puede venir como array o como objeto jsonb de SB
+  var perms=user.perms;
+  if(!perms||!perms.length){perms=ROLES[user.role]?ROLES[user.role].perms:ALL_PERMS.map(function(p){return p.id;});}
+  if(!Array.isArray(perms)){perms=Object.values(perms);}
+  user.perms=perms;
+  _currentUser=user; // asegurar que _currentUser está actualizado
+  buildNav();        // buildNav lee _currentUser.perms automáticamente
+  var firstPerm=perms.length?perms[0]:'catalog';
+  loadCarts();
+  goTo(firstPerm);
 }
 
 function verificarAdmin(){
@@ -2291,15 +2285,29 @@ const SVG={
 };
 
 function buildNav(){
-  const tabs=role==='admin'?NAV_ADMIN:NAV_CLIENT;
-  document.getElementById('bnav').innerHTML=tabs.map(([id,icon,lbl])=>`
-    <div class="bni" onclick="goTo('${id}')" id="bn-${id}">
-      <div style="position:relative;width:26px;height:26px;display:flex;align-items:center;justify-content:center">
-        <span style="color:var(--t3)" id="bni-ico-${id}">${SVG[icon]}</span>
-        ${id==='cart'?`<span class="cbadge" id="cbadge">0</span>`:''}
-      </div>
-      <span class="bni-lbl" id="bnl-${id}">${lbl}</span>
-    </div>`).join('');
+  var tabs;
+  if(role==='admin'){
+    if(_currentUser&&_currentUser.perms&&_currentUser.perms.length){
+      var pa=Array.isArray(_currentUser.perms)?_currentUser.perms:Object.values(_currentUser.perms||{});
+      tabs=NAV_ADMIN.filter(function(t){return pa.indexOf(t[0])>=0;});
+    } else {
+      tabs=NAV_ADMIN;
+    }
+  } else {
+    tabs=NAV_CLIENT;
+  }
+  var nav=document.getElementById('bnav');
+  nav.innerHTML='';
+  tabs.forEach(function(t){
+    var id=t[0];var icon=t[1];var lbl=t[2];
+    var btn=document.createElement('div');
+    btn.className='bni';
+    btn.id='bn-'+id;
+    btn.addEventListener('click',function(){goTo(id);});
+    var badge=id==='cart'?'<span class="cbadge" id="cbadge">0</span>':'';
+    btn.innerHTML='<div style="position:relative;width:26px;height:26px;display:flex;align-items:center;justify-content:center"><span style="color:var(--t3)" id="bni-ico-'+id+'">'+(SVG[icon]||'')+'</span>'+badge+'</div><span class="bni-lbl" id="bnl-'+id+'">'+lbl+'</span>';
+    nav.appendChild(btn);
+  });
 }
 
 function goTo(id){
