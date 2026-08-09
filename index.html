@@ -3170,8 +3170,15 @@ function generarPDF(order,cfg){
     +'.badge{background:'+brandColor+';color:#fff;font-size:16px;font-weight:700;padding:6px 16px;border-radius:6px;display:inline-block;letter-spacing:.5px;margin-bottom:6px}'
     +'.rside{text-align:right}'
     +'.rside p{font-size:11px;color:#888;line-height:1.8}'
-    +'.cbox{background:#f8f5f2;border-left:4px solid '+brandColor+';border-radius:0 8px 8px 0;padding:12px 16px;margin-bottom:20px;display:flex;gap:32px;flex-wrap:wrap}'
-    +'.cbox .f span{display:block;font-size:9px;color:#aaa;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}'
+    +'.cbox{background:#f8f5f2;border-left:4px solid '+brandColor+';border-radius:0 8px 8px 0;padding:12px 16px 14px;margin-bottom:20px}'
+    +'.cbox-hdr{display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid #e8d8cc}'
+    +'.cbox-hdr-title{font-size:10px;color:'+brandColor+';text-transform:uppercase;letter-spacing:.8px;font-weight:700;flex:1}'
+    +'.cbox-hdr-pedido{font-size:10px;color:#888}'
+    +'.cbox-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px 16px}'
+    +'.cbox-grid .f span{display:block;font-size:8px;color:#aaa;text-transform:uppercase;letter-spacing:.4px;margin-bottom:1px;font-weight:600}'
+    +'.cbox-grid .f strong{font-size:11px;font-weight:600;color:#222;word-break:break-word}'
+    +'.cbox-addr{margin-top:8px;padding-top:7px;border-top:1px solid #e8d8cc;font-size:10px;color:#555}'
+    +'.cbox-addr span{font-size:8px;color:#aaa;text-transform:uppercase;letter-spacing:.4px;font-weight:600;display:block;margin-bottom:2px}'
     +'.cbox .f strong{font-size:13px;font-weight:600}'
     +'table{width:100%;border-collapse:collapse;margin-bottom:20px;border:1px solid #eee}'
     +'thead th{background:'+brandColor+';color:#fff;padding:9px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.4px}'
@@ -3200,15 +3207,18 @@ function generarPDF(order,cfg){
       }
       var nombre=cd&&cd.name?cd.name:order.client;
       var rows2='<div class="cbox">'
-        +'<div class="cbox-title">Información del cliente</div>'
+        +'<div class="cbox-hdr">'
+        +'<div class="cbox-hdr-title">Información del cliente</div>'
+        +'<div class="cbox-hdr-pedido">Pedido: <strong>'+order.id+'</strong> &nbsp;·&nbsp; '+order.date+'</div>'
+        +'</div>'
         +'<div class="cbox-grid">'
         +'<div class="f"><span>Cliente</span><strong>'+nombre+'</strong></div>'
-        +(cd&&cd.doc?'<div class="f"><span>CC / NIT</span><strong>'+cd.doc+'</strong></div>':'<div class="f"><span>CC / NIT</span><strong>—</strong></div>')
-        +(cd&&cd.tel?'<div class="f"><span>Teléfono</span><strong>'+cd.tel+'</strong></div>':'<div class="f"><span>Teléfono</span><strong>—</strong></div>')
-        +(cd&&cd.city?'<div class="f"><span>Ciudad</span><strong>'+cd.city+'</strong></div>':'<div class="f"><span>Ciudad</span><strong>—</strong></div>')
+        +'<div class="f"><span>CC / NIT</span><strong>'+(cd&&cd.doc?cd.doc:'—')+'</strong></div>'
+        +'<div class="f"><span>Ciudad</span><strong>'+(cd&&cd.city?cd.city:'—')+'</strong></div>'
+        +'<div class="f"><span>Teléfono</span><strong>'+(cd&&cd.tel?cd.tel:'—')+'</strong></div>'
+        +'<div class="f"><span>Dirección</span><strong>'+(cd&&cd.addr?cd.addr:'—')+'</strong></div>'
         +(cd&&cd.seller?'<div class="f"><span>Vendedor</span><strong>'+cd.seller+'</strong></div>':'')
         +'</div>'
-        +(cd&&cd.addr?'<div style="margin-top:8px;padding-top:8px;border-top:1px solid #e8d8cc"><div class="f"><span>Dirección</span><strong>'+cd.addr+'</strong></div></div>':'')
         +'</div>';
       return rows2;
     })()
