@@ -448,6 +448,14 @@ button{cursor:pointer;border:none;background:none}
 .perm-ico{font-size:14px;flex-shrink:0}
 .perm-lbl{font-size:11px;color:var(--t2);font-weight:500}
 
+
+/* ── DESCUENTO POR LÍNEA (solo admin/vendedor) ── */
+.ci-dscto-row{display:flex;align-items:center;gap:5px;margin-top:4px}
+.ci-dscto-lbl{font-size:9px;color:var(--t3);font-weight:600;text-transform:uppercase;letter-spacing:.3px}
+.ci-dscto-inp{width:48px;background:var(--bg3);border:1px solid var(--b2);border-radius:6px;padding:3px 6px;font-size:11px;color:var(--t);text-align:center}
+.ci-dscto-inp:focus{outline:none;border-color:var(--or)}
+.ci-dscto-pct{font-size:10px;color:var(--t3)}
+.ci-dscto-preview{font-size:10px;color:var(--tl);font-weight:600;min-width:40px}
 </style>
 </head>
 <body>
@@ -2781,6 +2789,23 @@ function renderCartsBar(){
   bar.appendChild(addBtn);
 }
 
+
+// Descuentos manuales por ítem del carrito (solo admin/vendedor)
+var _cartDscto = {};  // {sid: porcentaje}
+
+function setItemDscto(sid, pct){
+  pct = Math.min(99, Math.max(0, parseFloat(pct)||0));
+  if(pct > 0) _cartDscto[sid] = pct;
+  else delete _cartDscto[sid];
+  renderCart();
+}
+
+function getItemDscto(sid, p){
+  // Prioridad: descuento manual del vendedor > descuento del inventario
+  if(_cartDscto[sid] !== undefined) return _cartDscto[sid];
+  return parseFloat(p.dscto)||0;
+}
+
 function renderCart(){
   renderCartsBar();
   var keys=Object.keys(cart),db=getDB(),cfg=getCfg();
@@ -2811,15 +2836,36 @@ function renderCart(){
   keys.forEach(function(sid){
     var p=db.find(function(x){return String(x.id)===sid;});
     if(!p)return;
-    var qty=cart[sid];var pFinal0=p.dscto&&p.dscto>0?Math.round(p.price*(1-p.dscto/100)):p.price;sub+=pFinal0*qty;
+    var qty=cart[sid];var _d0=getItemDscto(sid,p);var pFinal0=_d0>0?Math.round(p.price*(1-_d0/100)):p.price;sub+=pFinal0*qty;
     var div=document.createElement('div');div.className='citem';
     var thumb=document.createElement('div');thumb.className='cithumb';
     if(p.photo){var img=document.createElement('img');img.src=p.photo;img.alt='';thumb.appendChild(img);}
     else thumb.textContent='🔧';
     var info=document.createElement('div');info.className='ciinfo';
-    var pFinal=p.dscto&&p.dscto>0?Math.round(p.price*(1-p.dscto/100)):p.price;
-    var priceLabel=p.dscto&&p.dscto>0?'<span style="text-decoration:line-through;color:var(--t3);font-size:10px">'+fmt(p.price)+'</span> '+fmt(pFinal):fmt(pFinal);
-    info.innerHTML='<div class="cinm">'+p.name+'</div><div class="cipr">'+priceLabel+' c/u &nbsp;&middot;&nbsp; <strong>'+fmt(pFinal*qty)+'</strong></div>';
+    var dsctoAplicado=getItemDscto(sid,p);
+    var pFinal=dsctoAplicado>0?Math.round(p.price*(1-dsctoAplicado/100)):p.price;
+    var priceLabel=dsctoAplicado>0
+      ?'<span style="text-decoration:line-through;color:var(--rd);font-size:10px">'+fmt(p.price)+'</span> '+fmt(pFinal)
+      :fmt(pFinal);
+    var totalLinea=fmt(pFinal*qty);
+    info.innerHTML='<div class="cinm">'+p.name+'</div><div class="cipr">'+priceLabel+' c/u &nbsp;&middot;&nbsp; <strong>'+totalLinea+'</strong></div>';
+    // Campo descuento — solo visible para admin/vendedores
+    if(role==='admin'){
+      var dscRow=document.createElement('div');dscRow.className='ci-dscto-row';
+      var dscLbl=document.createElement('span');dscLbl.className='ci-dscto-lbl';dscLbl.textContent='Dscto:';
+      var dscInp=document.createElement('input');dscInp.type='number';dscInp.className='ci-dscto-inp';
+      dscInp.min='0';dscInp.max='99';dscInp.placeholder='0';
+      dscInp.value=dsctoAplicado>0?dsctoAplicado:'';
+      dscInp.title='Descuento % para este ítem';
+      (function(s,inp){
+        inp.oninput=function(){setItemDscto(s,inp.value);};
+      })(sid,dscInp);
+      var dscPct=document.createElement('span');dscPct.className='ci-dscto-pct';dscPct.textContent='%';
+      var dscPrev=document.createElement('span');dscPrev.className='ci-dscto-preview';
+      dscPrev.textContent=dsctoAplicado>0?'→ '+fmt(pFinal):'';
+      dscRow.appendChild(dscLbl);dscRow.appendChild(dscInp);dscRow.appendChild(dscPct);dscRow.appendChild(dscPrev);
+      info.appendChild(dscRow);
+    }
     var ctrl=document.createElement('div');ctrl.className='cictrl';
     var bm=document.createElement('button');bm.className='cqb';bm.textContent='−';bm.onclick=function(){chQty(sid,-1);};
     var qn=document.createElement('span');qn.className='cqn';qn.textContent=qty;
@@ -2833,10 +2879,9 @@ function renderCart(){
   var totalDscto=0;
   keys.forEach(function(sid){
     var p=db.find(function(x){return String(x.id)===sid;});
-    if(p&&p.dscto&&p.dscto>0){
-      var pOriginal=p.price;
-      var pFinal=Math.round(p.price*(1-p.dscto/100));
-      totalDscto+=(pOriginal-pFinal)*cart[sid];
+    if(p){
+      var _dm=getItemDscto(sid,p);
+      if(_dm>0){totalDscto+=(p.price-Math.round(p.price*(1-_dm/100)))*cart[sid];}
     }
   });
   // Subtotal ya viene con precios descontados (de la suma arriba)
@@ -2906,9 +2951,9 @@ async function confirmOrder(){
   var items=keys.map(function(sid){
     var p=db.find(function(x){return String(x.id)===sid;}),qty=cart[sid];
     if(!p)return null;
-    var pFinal=p.dscto&&p.dscto>0?Math.round(p.price*(1-p.dscto/100)):p.price;
+    var _dci=getItemDscto(sid,p);var pFinal=_dci>0?Math.round(p.price*(1-_dci/100)):p.price;
     sub+=pFinal*qty;
-    return{name:p.name,ref:p.ref||'',qty:qty,price:pFinal,originalPrice:p.price,dscto:p.dscto||0};
+    return{name:p.name,ref:p.ref||'',qty:qty,price:pFinal,originalPrice:p.price,dscto:_dci};
   }).filter(function(x){return x!==null;});
   var orders=getOrds();
   var consec='PED-'+String(orders.length+1).padStart(4,'0');
@@ -3041,6 +3086,7 @@ async function ejecutarEnvioWA(){
 
   // Resetear variables globales
   cart={};
+  _cartDscto={};
   _selectedClient=null;
   saveCarts(false);
 
