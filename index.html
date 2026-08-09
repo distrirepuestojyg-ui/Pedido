@@ -1945,11 +1945,14 @@ function goTo(id){
     if(_sbReady){bgSync('productos').then(function(){if(document.getElementById('sc-inventory').classList.contains('active'))renderInventory();});}
   }
   if(id==='history'){
-    renderHistory();
-    // Siempre sincronizar pedidos desde SB al entrar (datos siempre frescos)
+    renderHistory(); // mostrar caché inmediatamente
+    // Siempre traer pedidos frescos de Supabase al entrar
     if(_sbReady){
-      bgSync('pedidos').then(function(changed){
-        if(document.getElementById('sc-history').classList.contains('active'))renderHistory();
+      bgSync('pedidos').then(function(){
+        // Siempre re-renderizar después del sync, haya o no cambios
+        if(document.getElementById('sc-history')&&document.getElementById('sc-history').classList.contains('active')){
+          renderHistory();
+        }
       });
     }
     // Marcar todos como vistos después de 5 segundos
@@ -2372,7 +2375,11 @@ async function ejecutarEnvioWA(){
   updateBadge();renderCart();renderCatalog();
   _ordenPendiente=null;
   toast('Pedido '+order.id+' enviado por WhatsApp','ok');
-  setTimeout(function(){goTo('catalog');},500);
+  setTimeout(function(){
+    goTo('catalog');
+    // Forzar sync de pedidos para que aparezcan en historial
+    if(_sbReady)bgSync('pedidos');
+  },500);
 }
 
 function cerrarWAModal(){
@@ -3122,7 +3129,11 @@ function renderHistory(){
   var orders=getOrds();
 
   if(!orders.length){
-    document.getElementById('hlist').innerHTML='<div style="color:var(--t3);font-size:13px;text-align:center;padding:40px">Sin pedidos aún</div>';
+    // Mostrar mensaje apropiado según si SB está disponible
+    var msg=_sbReady
+      ?'<div style="color:var(--t3);font-size:13px;text-align:center;padding:40px"><div style="font-size:24px;margin-bottom:8px">📋</div>Sin pedidos en el historial</div>'
+      :'<div style="color:var(--t3);font-size:13px;text-align:center;padding:40px">Sin pedidos aún</div>';
+    document.getElementById('hlist').innerHTML=msg;
     renderPag('hist-pag',1,1,function(){});
     return;
   }
