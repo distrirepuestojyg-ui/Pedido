@@ -1630,8 +1630,7 @@ const SEED=[
 
 function getDB(){const r=localStorage.getItem(DBK);return r?JSON.parse(r):(saveDB(SEED),SEED);}
 function saveDB(d){localStorage.setItem(DBK,JSON.stringify(d));}
-function getOrds(){const r=localStorage.getItem(ORK);return r?JSON.parse(r):[];}
-function saveOrds(d){localStorage.setItem(ORK,JSON.stringify(d));}
+// getOrds/saveOrds defined above
 function getCfg(){
   const r=localStorage.getItem(CFG_K);
   return r?JSON.parse(r):{iva:19,ivaNom:'IVA',wa:'',empresa:'MotoRepuestos Pro',nit:'',tel:'',cats:['Motor','Frenos','Eléctrico','Transmisión','Suspensión','Aceites','Llantas'],brands:['Universal','NGK','EBC','Yuasa','DID','JT','YSS','Wave','Honda','Yamaha'],bgTheme:'dark',logo:'',bannerImg:'',adminUser:'admin',adminPass:'1234'};
@@ -1901,11 +1900,14 @@ function goTo(id){
   if(id==='inventory'){renderInventory();bgSync('productos').then(function(changed){if(changed)renderInventory();});}
   if(id==='history'){
     renderHistory();
-    // Marcar todos como vistos después de 5 segundos de estar en la pantalla
+    // Sync pedidos en background y re-render si hay nuevos
+    bgSync('pedidos').then(function(changed){
+      if(changed && document.getElementById('sc-history').classList.contains('active'))renderHistory();
+    });
+    // Marcar todos como vistos después de 5 segundos
     setTimeout(function(){
       if(document.getElementById('sc-history').classList.contains('active')){
         markAllOrdersSeen();
-        // Quitar badges sin re-render completo
         document.querySelectorAll('.ocard.new-order').forEach(function(card){card.classList.remove('new-order');});
         document.querySelectorAll('.onew-badge').forEach(function(b){b.remove();});
       }
@@ -1981,6 +1983,13 @@ function renderCatalog(){
   const q=(document.getElementById('sq').value||'').toLowerCase();
   const sel=document.getElementById('cf');const pv=sel.value;
   const db=getDB();
+  // Si DB vacía y SB listo, cargar primero
+  if(!db.length&&_sbReady){
+    var grid=document.getElementById('pgrid');
+    if(grid)grid.innerHTML='<div style="color:var(--t3);font-size:13px;text-align:center;padding:40px;grid-column:1/-1">Cargando catálogo...</div>';
+    bgSync('productos').then(function(){renderCatalog();});
+    return;
+  }
   const cats=[...new Set(db.map(p=>p.cat))].sort();
   sel.innerHTML='<option value="">Todas</option>'+cats.map(c=>`<option${c===pv?' selected':''}>${c}</option>`).join('');
   const cat=sel.value;
@@ -2980,6 +2989,12 @@ function clearInvSearch(){
 
 function renderInventory(){
   const db=getDB();
+  if(!db.length&&_sbReady){
+    var ilist=document.getElementById('ilist');
+    if(ilist)ilist.innerHTML='<div style="color:var(--t3);font-size:13px;text-align:center;padding:40px">Cargando inventario...</div>';
+    bgSync('productos').then(function(){renderInventory();});
+    return;
+  }
   const low=db.filter(p=>p.stock<=p.min&&p.stock>0).length;
   const out=db.filter(p=>p.stock===0).length;
   const val=db.reduce((a,p)=>a+p.price*p.stock,0);
@@ -3060,7 +3075,14 @@ function clearHistSearch(){
 }
 
 function renderHistory(){
-  const orders=getOrds();
+  var orders=getOrds();
+  // Si no hay datos en caché y SB está listo, cargar primero
+  if(!orders.length&&_sbReady){
+    var hlist=document.getElementById('hlist');
+    if(hlist)hlist.innerHTML='<div style="color:var(--t3);font-size:13px;text-align:center;padding:40px">Cargando pedidos...</div>';
+    bgSync('pedidos').then(function(){renderHistory();});
+    return;
+  }
   if(!orders.length){
     document.getElementById('hlist').innerHTML='<div style="color:var(--t3);font-size:13px;text-align:center;padding:40px">Sin pedidos aún</div>';
     renderPag('hist-pag',1,1,function(){});
