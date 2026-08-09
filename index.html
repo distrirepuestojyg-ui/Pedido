@@ -3849,45 +3849,36 @@ function isNewOrder(id){
   return getSeenOrders().indexOf(id)<0;
 }
 async function markOrderSeen(id){
-  // 1. Actualizar en memoria local
+  // 1. Actualizar en memoria local inmediatamente
   var seen=getSeenOrders();
   if(seen.indexOf(id)<0){seen.push(id);_seenMem=seen;try{localStorage.setItem(SEEN_K,JSON.stringify(seen));}catch(e){}}
   // 2. Actualizar campo visto en caché local
   var orders=getOrds();
   var oidx=orders.findIndex(function(o){return o.id===id;});
-  if(oidx<0)return;
-  orders[oidx].visto=true;
-  saveOrds(orders);
-  // 3. Enviar UPSERT completo del pedido a Supabase con visto=true
+  if(oidx>=0){orders[oidx].visto=true;saveOrds(orders);}
+  // 3. PATCH directo solo el campo visto — más simple y confiable
   if(!_sbReady)return;
-  var o=orders[oidx];
   try{
-    var url=SB_URL+'/rest/v1/pedidos?on_conflict=id';
-    var body={
-      id:o.id,
-      client:o.client,
-      items:o.items,
-      subtotal:o.subtotal,
-      iva_pct:o.ivaPct,
-      iva_nom:o.ivaNom,
-      tax:o.tax,
-      total:o.total,
-      date_str:o.date,
-      visto:true
-    };
-    var r=await sbFetch(url,{
-      method:'POST',
-      headers:Object.assign({'Prefer':'return=minimal,resolution=merge-duplicates'},sbHeaders(true)),
-      body:JSON.stringify([body])
+    // PATCH actualiza solo los campos indicados sin tocar los demás
+    var patchUrl=SB_URL+'/rest/v1/pedidos?id=eq.'+encodeURIComponent(id);
+    var r=await sbFetch(patchUrl,{
+      method:'PATCH',
+      headers:Object.assign({'Prefer':'return=minimal'},sbHeaders(true)),
+      body:JSON.stringify({visto:true})
     },10000);
     if(r.ok){
-      console.log('Pedido '+id+' marcado visto=true en Supabase OK');
+      console.log('Pedido '+id+': visto=true actualizado en SB');
+      // Forzar bgSync para que todos los dispositivos vean el cambio
+      setTimeout(function(){bgSync('pedidos');},500);
     } else {
-      var t=await r.text();
-      console.warn('Error marcando visto ('+r.status+'):',t);
+      var txt=await r.text();
+      console.warn('PATCH visto error HTTP '+r.status+':', txt);
+      if(txt.indexOf('visto')>=0||r.status===400){
+        toast('Ejecuta el SQL: ALTER TABLE pedidos ADD COLUMN visto boolean DEFAULT false','err');
+      }
     }
   }catch(e){
-    console.warn('markOrderSeen SB error:',e.message);
+    console.warn('markOrderSeen error:',e.message);
   }
 }
 function markAllOrdersSeen(){
