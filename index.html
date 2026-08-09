@@ -2314,6 +2314,16 @@ async function confirmOrder(){
     clientData:_selectedClient||null,
     db:db,cfg:cfg
   };
+  // Guardar pedido INMEDIATAMENTE en memoria (antes del modal)
+  // Así el pedido queda registrado aunque WA falle o no se abra
+  var ordersNow=getOrds();
+  var preOrder={id:consec,client:client,clientData:_selectedClient||null,
+    items:items,subtotalBruto:subBrutoOrder,descuento:totalDsctoOrder,
+    subtotal:sub,ivaPct:ivaPct,ivaNom:cfg.ivaNom||'IVA',tax:tax,
+    total:sub+tax,date:new Date().toLocaleString('es-CO')};
+  ordersNow.unshift(preOrder);
+  saveOrds(ordersNow);
+
   // Mostrar modal de confirmación WA
   abrirWAModal(_ordenPendiente,cfg);
 }
@@ -2354,10 +2364,15 @@ async function ejecutarEnvioWA(){
   });
   saveDB(db);
 
-  // 2. Guardar pedido
+  // 2. El pedido ya fue guardado en confirmOrder — actualizar si cambió algo
   var orders=getOrds();
-  var newOrder={id:order.id,client:order.client,clientData:order.clientData||null,items:order.items,subtotal:order.subtotal,ivaPct:order.ivaPct,ivaNom:order.ivaNom,tax:order.tax,total:order.total,date:order.date};
-  orders.unshift(newOrder);
+  var existingIdx=orders.findIndex(function(o){return o.id===order.id;});
+  var newOrder={id:order.id,client:order.client,clientData:order.clientData||null,
+    items:order.items,subtotalBruto:order.subtotalBruto,descuento:order.descuento,
+    subtotal:order.subtotal,ivaPct:order.ivaPct,ivaNom:order.ivaNom,
+    tax:order.tax,total:order.total,date:order.date};
+  if(existingIdx>=0){orders[existingIdx]=newOrder;}
+  else{orders.unshift(newOrder);}
   saveOrds(orders);
   // Subir a SB y confirmar
   pushOrderToSB(newOrder).then(function(){
@@ -2404,6 +2419,7 @@ async function ejecutarEnvioWA(){
 
 function cerrarWAModal(){
   document.getElementById('wa-confirm-modal').classList.remove('open');
+  // El pedido ya fue pre-guardado, solo limpiar la referencia pendiente
   _ordenPendiente=null;
 }
 
@@ -3143,6 +3159,27 @@ function clearHistSearch(){
   PAG.hist = 1;
   renderHistory();
   if(inp) inp.focus();
+}
+
+
+// ─── PEDIDOS NUEVOS ───────────────────────────────────────────────────────────
+var SEEN_K = 'mrp_seen_orders';
+var _seenMem = [];
+
+function getSeenOrders(){
+  if(_seenMem.length)return _seenMem;
+  try{var s=localStorage.getItem(SEEN_K);return s?JSON.parse(s):[];}catch(e){return [];}
+}
+function isNewOrder(id){
+  return getSeenOrders().indexOf(id)<0;
+}
+function markOrderSeen(id){
+  var seen=getSeenOrders();
+  if(seen.indexOf(id)<0){seen.push(id);_seenMem=seen;try{localStorage.setItem(SEEN_K,JSON.stringify(seen));}catch(e){}}
+}
+function markAllOrdersSeen(){
+  var ids=getOrds().map(function(o){return o.id;});
+  _seenMem=ids;try{localStorage.setItem(SEEN_K,JSON.stringify(ids));}catch(e){}
 }
 
 function renderHistory(){
