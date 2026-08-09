@@ -428,6 +428,26 @@ button{cursor:pointer;border:none;background:none}
 .cart-tab.active .cart-tab-badge{box-shadow:0 0 0 2px var(--bg)}
 .cart-add-btn{flex-shrink:0;align-self:center;padding:6px 10px;border-radius:8px;background:none;border:1px dashed var(--b2);color:var(--t3);cursor:pointer;font-size:11px;font-weight:500;display:flex;align-items:center;gap:4px;transition:all .15s;white-space:nowrap;margin-bottom:2px}
 .cart-add-btn:active{border-color:var(--or);color:var(--or)}
+
+/* ── USUARIOS ── */
+.ucard{background:var(--bg2);border:1px solid var(--b);border-radius:12px;padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:10px}
+.ucard-avatar{width:36px;height:36px;border-radius:50%;background:var(--or);color:#fff;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.ucard-info{flex:1;min-width:0}
+.ucard-name{font-size:13px;font-weight:600;color:var(--t)}
+.ucard-sub{font-size:11px;color:var(--t2);margin-top:2px}
+.ucard-btns{display:flex;gap:6px;flex-shrink:0}
+.role-badge{display:inline-block;font-size:9px;font-weight:700;padding:2px 7px;border-radius:99px;text-transform:uppercase;letter-spacing:.4px}
+.role-badge.superadmin{background:#f3e8ff;color:#7c3aed;border:1px solid #c4b5fd}
+.role-badge.admin{background:var(--tld);color:var(--tl);border:1px solid var(--tl)}
+.role-badge.vendedor{background:#fef3e2;color:#854f0b;border:1px solid #fac775}
+.role-badge.bodega{background:#e0f2fe;color:#0369a1;border:1px solid #7dd3fc}
+.perm-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px}
+.perm-item{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg3);border-radius:8px;cursor:pointer;border:1px solid var(--b)}
+.perm-item.active{background:var(--tld);border-color:var(--tl)}
+.perm-item.active .perm-lbl{color:var(--tl);font-weight:600}
+.perm-ico{font-size:14px;flex-shrink:0}
+.perm-lbl{font-size:11px;color:var(--t2);font-weight:500}
+
 </style>
 </head>
 <body>
@@ -604,7 +624,8 @@ button{cursor:pointer;border:none;background:none}
       <div class="cfg-tab active" onclick="setCfgTab(0)">🏪 Empresa</div>
       <div class="cfg-tab" onclick="setCfgTab(1)">🏷️ Catálogo</div>
       <div class="cfg-tab" onclick="setCfgTab(2)">🛠️ Sistema</div>
-      <div class="cfg-tab" onclick="setCfgTab(3)">🔗 Supabase</div>
+      <div class="cfg-tab" onclick="setCfgTab(3)">👤 Usuarios</div>
+      <div class="cfg-tab" onclick="setCfgTab(4)">🔗 Supabase</div>
     </div>
     <div style="flex:1;overflow:hidden;display:flex;flex-direction:column;min-height:0">
 
@@ -720,8 +741,17 @@ button{cursor:pointer;border:none;background:none}
         </div>
       </div>
 
-      <!-- PAGE 3: Supabase -->
+      <!-- PAGE 3: Usuarios -->
       <div class="cfg-page" id="cfg-page-3">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:10px">
+          <div style="font-size:13px;font-weight:600;color:var(--t)">Usuarios del sistema</div>
+          <button class="iab prime" onclick="openUserForm()">+ Nuevo</button>
+        </div>
+        <div id="users-list"></div>
+      </div>
+
+      <!-- PAGE 4: Supabase -->
+      <div class="cfg-page" id="cfg-page-4">
         <div class="cfg-body">
           <div class="cfg-section" id="sb-section">
             <div class="cfg-title">🔗 Conexión Supabase</div>
@@ -890,6 +920,29 @@ button{cursor:pointer;border:none;background:none}
     <div class="mbtns">
       <button class="mb" onclick="cerrarQuickClient()">Cancelar</button>
       <button class="mb save" onclick="guardarQuickClient()">Crear y continuar</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- MODAL USUARIO -->
+<div class="mbg" id="user-modal">
+  <div class="msheet">
+    <div class="mdrag"></div>
+    <h2 id="uf-modal-title">Nuevo usuario</h2>
+    <div class="fg"><label class="fl">Nombre completo *</label><input class="fi" id="uf-name" type="text" placeholder="Carlos Pérez"></div>
+    <div class="f2">
+      <div class="fg"><label class="fl">Usuario *</label><input class="fi" id="uf-username" type="text" placeholder="carlos.perez" autocomplete="off"></div>
+      <div class="fg"><label class="fl">Rol</label><select class="fi-sel" id="uf-role" onchange="onRoleChange(this)"></select></div>
+    </div>
+    <div class="fg" id="uf-pass-row"><label class="fl">Contraseña *</label><input class="fi" id="uf-password" type="password" placeholder="••••••••" autocomplete="new-password"></div>
+    <div style="margin-top:14px">
+      <div class="fl" style="margin-bottom:8px">Permisos de acceso</div>
+      <div class="perm-grid" id="uf-perms-grid"></div>
+    </div>
+    <div class="mbtns">
+      <button class="mb" onclick="closeM('user-modal')">Cancelar</button>
+      <button class="mb save" onclick="saveUser()">Guardar</button>
     </div>
   </div>
 </div>
@@ -1102,7 +1155,8 @@ function setCfgTab(idx){
   // Load fondo grid when tab 2 opens
   if(idx===2){var cfg=getCfg();buildFondoGrid(cfg.bgTheme||'dark');var inp=document.getElementById('cfg-bg-custom');if(inp)inp.value=(BG_THEMES[cfg.bgTheme||'dark']||BG_THEMES.dark).bg;}
   // Load SB status when tab 3 opens
-  if(idx===3){loadSBConfig();}
+  if(idx===3){loadUsers();}
+  if(idx===4){loadSBConfig();}
 }
 
 // ─── BANNER PUBLICIDAD ────────────────────────────────────────────────────────
@@ -1726,27 +1780,289 @@ function abrirLoginAdmin(){
 function cerrarLoginAdmin(){
   document.getElementById('admin-login-modal').classList.remove('open');
 }
-function verificarAdmin(){
-  var cfg=getCfg();
-  var user=(document.getElementById('admin-user-inp').value||'').trim();
-  var pass=(document.getElementById('admin-pass-inp').value||'');
-  var okUser=cfg.adminUser||'admin';
-  var okPass=cfg.adminPass||'1234';
-  var errEl=document.getElementById('admin-error');
-  var userInp=document.getElementById('admin-user-inp');
-  var passInp=document.getElementById('admin-pass-inp');
-  userInp.classList.remove('error');passInp.classList.remove('error');
-  if(!user){userInp.classList.add('error');errEl.textContent='Ingresa el usuario';return;}
-  if(!pass){passInp.classList.add('error');errEl.textContent='Ingresa la contraseña';return;}
-  if(user!==okUser||pass!==okPass){
-    userInp.classList.add('error');passInp.classList.add('error');
-    errEl.textContent='Usuario o contraseña incorrectos';
-    document.getElementById('admin-pass-inp').value='';
+
+// ─── MAESTRO DE USUARIOS ─────────────────────────────────────────────────────
+var USR_K = 'mrp_users3';
+var _currentUser = null; // usuario logueado actualmente
+
+// Permisos disponibles por módulo
+var ALL_PERMS = [
+  {id:'catalog',   label:'Catálogo',   ico:'🛍️'},
+  {id:'cart',      label:'Pedido',     ico:'🛒'},
+  {id:'inventory', label:'Inventario', ico:'📦'},
+  {id:'clients',   label:'Clientes',   ico:'👥'},
+  {id:'history',   label:'Pedidos',    ico:'📋'},
+  {id:'config',    label:'Config',     ico:'⚙️'},
+];
+
+// Roles predefinidos con sus permisos por defecto
+var ROLES = {
+  superadmin: {label:'Superadmin', perms:['catalog','cart','inventory','clients','history','config']},
+  admin:      {label:'Admin',      perms:['catalog','cart','inventory','clients','history','config']},
+  vendedor:   {label:'Vendedor',   perms:['catalog','cart','clients']},
+  bodega:     {label:'Bodega',     perms:['catalog','inventory']},
+};
+
+function getUsers(){return _memGet(USR_K)||[];}
+function saveUsers(d){_memSet(USR_K,d);}
+
+async function getUsersAsync(){
+  if(_sbReady){
+    var r=await sbGet('usuarios','?order=name.asc');
+    if(r){_memSet(USR_K,r);return r;}
+  }
+  return getUsers();
+}
+
+async function pushUserToSB(u){
+  if(!_sbReady)return;
+  try{
+    var url=SB_URL+'/rest/v1/usuarios?on_conflict=id';
+    await sbFetch(url,{
+      method:'POST',
+      headers:Object.assign({'Prefer':'return=minimal,resolution=merge-duplicates'},sbHeaders(true)),
+      body:JSON.stringify([{id:u.id,name:u.name,username:u.username,password:u.password,role:u.role,perms:u.perms,activo:u.activo!==false}])
+    },10000);
+  }catch(e){console.warn('pushUserToSB:',e.message);}
+}
+
+async function deleteUserFromSB(id){
+  if(!_sbReady)return;
+  await sbDelete('usuarios','id=eq.'+id);
+}
+
+// ── CRUD ──────────────────────────────────────────────────────────────────────
+var _editUserId = null;
+
+function openUserForm(id){
+  _editUserId = id||null;
+  var isEdit = !!id;
+  // Poblar select de roles
+  var sel = document.getElementById('uf-role');
+  if(sel){
+    sel.innerHTML = Object.keys(ROLES).map(function(r){
+      return '<option value="'+r+'">'+ROLES[r].label+'</option>';
+    }).join('');
+  }
+  // Limpiar campos
+  ['name','username','password'].forEach(function(f){
+    var el=document.getElementById('uf-'+f);if(el)el.value='';
+  });
+  document.getElementById('uf-modal-title').textContent = isEdit?'Editar usuario':'Nuevo usuario';
+  var passRow = document.getElementById('uf-pass-row');
+  if(passRow)passRow.style.display = isEdit?'none':'block';
+
+  if(isEdit){
+    var u=getUsers().find(function(x){return x.id===id;});
+    if(u){
+      document.getElementById('uf-name').value=u.name||'';
+      document.getElementById('uf-username').value=u.username||'';
+      if(sel)sel.value=u.role||'admin';
+      _renderPermGrid(u.perms||ROLES[u.role||'admin'].perms);
+    }
+  } else {
+    if(sel)sel.value='vendedor';
+    _renderPermGrid(ROLES.vendedor.perms);
+  }
+  openM('user-modal');
+}
+
+function _renderPermGrid(activoPerms){
+  var grid = document.getElementById('uf-perms-grid');
+  if(!grid)return;
+  grid.innerHTML='';
+  ALL_PERMS.forEach(function(p){
+    var isActive=activoPerms.indexOf(p.id)>=0;
+    var item=document.createElement('div');
+    item.className='perm-item'+(isActive?' active':'');
+    item.innerHTML='<span class="perm-ico">'+p.ico+'</span><span class="perm-lbl">'+p.label+'</span>';
+    item.onclick=function(){
+      item.classList.toggle('active');
+    };
+    grid.appendChild(item);
+  });
+}
+
+function _getRoleFromSel(){return (document.getElementById('uf-role')||{value:'admin'}).value;}
+
+function _getSelectedPerms(){
+  var perms=[];
+  var items=document.querySelectorAll('#uf-perms-grid .perm-item.active');
+  items.forEach(function(item,i){perms.push(ALL_PERMS[i].id);});
+  return perms;
+}
+
+// Al cambiar rol, actualizar perms por defecto
+function onRoleChange(sel){
+  var role=sel.value;
+  _renderPermGrid(ROLES[role]?ROLES[role].perms:ALL_PERMS.map(function(p){return p.id;}));
+}
+
+async function saveUser(){
+  var name=(document.getElementById('uf-name').value||'').trim();
+  var username=(document.getElementById('uf-username').value||'').trim().toLowerCase();
+  var password=(document.getElementById('uf-password')||{value:''}).value||'';
+  var role=_getRoleFromSel();
+  var perms=_getSelectedPerms();
+
+  if(!name){toast('El nombre es obligatorio','err');return;}
+  if(!username){toast('El usuario es obligatorio','err');return;}
+  if(!_editUserId&&!password){toast('La contraseña es obligatoria','err');return;}
+
+  var users=getUsers();
+  // Verificar duplicado de username
+  var dup=users.find(function(u){return u.username===username&&u.id!==_editUserId;});
+  if(dup){toast('Este usuario ya existe','err');return;}
+
+  var userData={
+    id:_editUserId||('USR-'+Date.now()),
+    name:name,username:username,
+    password:password||(_editUserId?users.find(function(u){return u.id===_editUserId;}).password:''),
+    role:role,perms:perms,activo:true
+  };
+
+  if(_editUserId){
+    var idx=users.findIndex(function(u){return u.id===_editUserId;});
+    if(idx>=0)users[idx]=userData;
+  } else {
+    users.push(userData);
+  }
+  saveUsers(users);
+  pushUserToSB(userData);
+  closeM('user-modal');
+  loadUsers();
+  toast((_editUserId?'Usuario actualizado':'Usuario creado'),'ok');
+}
+
+function toggleUserActivo(id){
+  var users=getUsers();
+  var u=users.find(function(x){return x.id===id;});
+  if(!u)return;
+  u.activo=!u.activo;
+  saveUsers(users);
+  pushUserToSB(u);
+  loadUsers();
+  toast(u.activo?'Usuario activado':'Usuario desactivado');
+}
+
+function deleteUser(id){
+  if(!confirm('¿Eliminar este usuario?'))return;
+  var users=getUsers().filter(function(u){return u.id!==id;});
+  saveUsers(users);
+  deleteUserFromSB(id);
+  loadUsers();
+  toast('Usuario eliminado');
+}
+
+async function loadUsers(){
+  var users=await getUsersAsync();
+  var container=document.getElementById('users-list');
+  if(!container)return;
+  if(!users.length){
+    container.innerHTML='<div style="color:var(--t3);font-size:13px;text-align:center;padding:24px">Sin usuarios registrados</div>';
     return;
   }
-  cerrarLoginAdmin();
-  role='admin';
-  boot();
+  container.innerHTML='';
+  users.forEach(function(u){
+    var card=document.createElement('div');card.className='ucard';
+    var initial=(u.name||'?')[0].toUpperCase();
+    var roleInfo=ROLES[u.role]||{label:u.role};
+    var badgeClass='role-badge '+(u.role||'admin');
+        var avatar=document.createElement('div');avatar.className='ucard-avatar';avatar.textContent=initial;
+    var info=document.createElement('div');info.className='ucard-info';
+    var nm=document.createElement('div');nm.className='ucard-name';
+    var badge=document.createElement('span');badge.className=badgeClass;badge.textContent=roleInfo.label;
+    nm.appendChild(document.createTextNode(u.name+' '));nm.appendChild(badge);
+    var sub=document.createElement('div');sub.className='ucard-sub';
+    sub.textContent='@'+u.username+(u.activo===false?' · Inactivo':'');
+    if(u.activo===false)sub.style.color='var(--rd)';
+    info.appendChild(nm);info.appendChild(sub);
+    var btns=document.createElement('div');btns.className='ucard-btns';
+    var editBtn=document.createElement('button');editBtn.className='irb';editBtn.textContent='✏';
+    editBtn.onclick=(function(uid){return function(){openUserForm(uid);};})(u.id);
+    var togBtn=document.createElement('button');togBtn.className='irb';togBtn.textContent=u.activo===false?'▶':'⏸';
+    togBtn.onclick=(function(uid){return function(){toggleUserActivo(uid);};})(u.id);
+    var delBtn=document.createElement('button');delBtn.className='irb danger';delBtn.textContent='🗑';
+    delBtn.onclick=(function(uid){return function(){deleteUser(uid);};})(u.id);
+    btns.appendChild(editBtn);btns.appendChild(togBtn);btns.appendChild(delBtn);
+    card.appendChild(avatar);card.appendChild(info);card.appendChild(btns);
+        container.appendChild(card);
+  });
+}
+
+// ── LOGIN CON MAESTRO DE USUARIOS ────────────────────────────────────────────
+async function verificarAdminConDB(){
+  var userInp=document.getElementById('admin-user-inp');
+  var passInp=document.getElementById('admin-pass-inp');
+  var errEl=document.getElementById('admin-error');
+  var username=(userInp.value||'').trim().toLowerCase();
+  var password=passInp.value||'';
+
+  userInp.classList.remove('error');passInp.classList.remove('error');
+  if(!username){userInp.classList.add('error');errEl.textContent='Ingresa el usuario';return;}
+  if(!password){passInp.classList.add('error');errEl.textContent='Ingresa la contraseña';return;}
+
+  // 1. Buscar en maestro de usuarios
+  var users=await getUsersAsync();
+  var found=users.find(function(u){return u.username===username&&u.password===password&&u.activo!==false;});
+
+  if(found){
+    _currentUser=found;
+    cerrarLoginAdmin();
+    // Construir nav según permisos
+    role='admin';
+    _bootWithUser(found);
+    return;
+  }
+
+  // 2. Fallback al admin de config (compatibilidad)
+  var cfg=getCfg();
+  if(username===(cfg.adminUser||'admin')&&password===(cfg.adminPass||'1234')){
+    _currentUser={id:'admin',name:'Administrador',username:username,role:'superadmin',perms:ALL_PERMS.map(function(p){return p.id;})};
+    cerrarLoginAdmin();
+    role='admin';
+    _bootWithUser(_currentUser);
+    return;
+  }
+
+  userInp.classList.add('error');passInp.classList.add('error');
+  errEl.textContent='Usuario o contraseña incorrectos';
+  passInp.value='';
+}
+
+function _bootWithUser(user){
+  // Mostrar nombre del usuario en el pill
+  var pill=document.getElementById('rpill');
+  if(pill){pill.textContent='⚙ '+user.name.split(' ')[0];pill.className='rpill rp-a';}
+  // Construir nav con permisos del usuario
+  _buildNavForUser(user);
+  // Ir a primer pantalla permitida
+  var firstPerm=user.perms&&user.perms.length?user.perms[0]:'catalog';
+  loadCarts();
+  goTo(firstPerm);
+  // Iniciar sync SB
+  if(_sbReady){syncFromSupabase().then(function(){refreshCurrentScreen();});startAutoSync();}
+}
+
+function _buildNavForUser(user){
+  var perms=user.perms||ALL_PERMS.map(function(p){return p.id;});
+  var allTabs=NAV_ADMIN; // todos los tabs posibles
+  var allowed=allTabs.filter(function(t){return perms.indexOf(t[0])>=0;});
+  var nav=document.getElementById('bnav');
+  if(!nav)return;
+  nav.innerHTML='';
+  allowed.forEach(function(t){
+    var btn=document.createElement('div');btn.className='bn';
+    btn.onclick=function(){goTo(t[0]);};
+    btn.innerHTML='<div class="bn-ico">'+SVG[t[1]]+'</div><div class="bn-lbl">'+t[2]+'</div>';
+    nav.appendChild(btn);
+  });
+  if(allowed.length)goTo(allowed[0][0]);
+}
+
+function verificarAdmin(){
+  // Delegar al nuevo sistema con DB
+  verificarAdminConDB();
 }
 
 // ─── VALIDACIÓN NOMBRE CLIENTE ────────────────────────────────────────────────
