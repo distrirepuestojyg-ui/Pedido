@@ -2642,20 +2642,48 @@ async function ejecutarEnvioWA(){
   // 4. PDF con pequeño delay para no competir con WhatsApp
   setTimeout(function(){generarPDF(order,cfg);},300);
 
-  // 5. Limpiar
+  // 5. Limpiar TODO a cero
   cerrarWAModal();
-  cart={};
-  // Cerrar el carrito activo tras confirmar el pedido
-  closeCart(_activeCartId);
-  document.getElementById('cname').value='';
-  updateBadge();renderCart();renderCatalog();
   _ordenPendiente=null;
-  toast('Pedido '+order.id+' enviado por WhatsApp','ok');
+
+  // Eliminar carrito activo de SB y de la lista
+  var cartIdToClose=_activeCartId;
+  deleteCartFromSB(cartIdToClose);
+
+  // Resetear completamente el carrito activo en memoria
+  var activeIdx=_carts.findIndex(function(c){return c.id===cartIdToClose;});
+  if(activeIdx>=0){
+    if(_carts.length>1){
+      // Más de un carrito: cerrar este y activar el anterior
+      _carts.splice(activeIdx,1);
+      _activeCartId=(_carts[Math.max(0,activeIdx-1)]||_carts[0]).id;
+    } else {
+      // Solo un carrito: limpiarlo y reutilizarlo (no eliminar)
+      _carts[0]={id:_carts[0].id,client:null,items:{}};
+      _activeCartId=_carts[0].id;
+    }
+  }
+
+  // Resetear variables globales
+  cart={};
+  _selectedClient=null;
+  saveCarts(false);
+
+  // Limpiar UI
+  try{
+    var inp=document.getElementById('cname');if(inp)inp.value='';
+    clearSelectedClient();
+  }catch(e){}
+
+  updateBadge();
+  toast('✅ Pedido '+order.id+' confirmado y enviado','ok');
+
+  // Ir al catálogo con leve delay para que el toast sea visible
   setTimeout(function(){
     goTo('catalog');
-    // Forzar sync de pedidos para que aparezcan en historial
+    renderCartsBar();
     if(_sbReady)bgSync('pedidos');
-  },500);
+  },800);
 }
 
 function cerrarWAModal(){
@@ -3277,9 +3305,7 @@ function selectClient(cli){
   nm.textContent=cli.name;
   var info=[];
   if(cli.doc)info.push('CC/NIT: '+cli.doc);
-  if(cli.tel)info.push(cli.tel);
   if(cli.city)info.push(cli.city);
-  if(cli.seller)info.push('Vendedor: '+cli.seller);
   sb.textContent=info.join(' · ');
   box.style.display='block';
   wrap.style.display='none';
