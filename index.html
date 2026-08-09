@@ -454,6 +454,8 @@ button{cursor:pointer;border:none;background:none}
 
 
 
+
+
 <!-- LOGIN -->
 <div id="login-screen">
   <!-- Acceso admin discreto — esquina superior izquierda -->
@@ -3560,22 +3562,54 @@ function renderClients(){
   container.innerHTML='';
   page.forEach(function(cli){
     var card=document.createElement('div');card.className='clicard';
+
+    // Avatar con inicial
+    var avatar=document.createElement('div');avatar.className='clicard-avatar';
+    avatar.textContent=(cli.name||'?')[0].toUpperCase();
+
+    // Cuerpo
+    var body=document.createElement('div');body.className='clicard-body';
+
+    // Nombre
     var nm=document.createElement('div');nm.className='clicard-name';nm.textContent=cli.name;
-    var sub=document.createElement('div');sub.className='clicard-sub';
-    var lines=[];
-    if(cli.doc)lines.push('CC/NIT: '+cli.doc);
-    if(cli.tel)lines.push('Tel: '+cli.tel);
-    if(cli.city)lines.push(cli.city);
-    if(cli.addr)lines.push(cli.addr);
-    if(cli.seller)lines.push('Vendedor: '+cli.seller);
-    sub.textContent=lines.join(' · ');
+
+    // Grid de campos
+    var grid=document.createElement('div');grid.className='clicard-grid';
+    var fields=[
+      {label:'CC / NIT',   value:cli.doc||'—'},
+      {label:'Teléfono',   value:cli.tel||'—'},
+      {label:'Ciudad',     value:cli.city||'—'},
+      {label:'Vendedor',   value:cli.seller||'—'},
+    ];
+    fields.forEach(function(f){
+      var field=document.createElement('div');field.className='clicard-field';
+      var lbl=document.createElement('div');lbl.className='clicard-label';lbl.textContent=f.label;
+      var val=document.createElement('div');val.className='clicard-value';val.textContent=f.value;
+      field.appendChild(lbl);field.appendChild(val);
+      grid.appendChild(field);
+    });
+
+    // Dirección (fila completa si existe)
+    var addrEl=null;
+    if(cli.addr){
+      addrEl=document.createElement('div');addrEl.className='clicard-addr';
+      addrEl.textContent='📍 '+cli.addr;
+    }
+
+    // Botones
     var btns=document.createElement('div');btns.className='clicard-btns';
-    var editBtn=document.createElement('button');editBtn.className='irb';editBtn.textContent='✏ Editar';
+    var editBtn=document.createElement('button');editBtn.className='iab';
+    editBtn.innerHTML='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Editar';
     editBtn.onclick=function(){openClientForm(cli.id);};
-    var delBtn=document.createElement('button');delBtn.className='irb danger';delBtn.textContent='🗑';
+    var delBtn=document.createElement('button');delBtn.className='iab';delBtn.style.cssText='color:var(--rd);border-color:var(--rdd);background:var(--rdd)';
+    delBtn.innerHTML='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
     delBtn.onclick=function(){deleteClient(cli.id);};
     btns.appendChild(editBtn);btns.appendChild(delBtn);
-    card.appendChild(nm);card.appendChild(sub);card.appendChild(btns);
+
+    body.appendChild(nm);body.appendChild(grid);
+    if(addrEl)body.appendChild(addrEl);
+    body.appendChild(btns);
+    card.appendChild(avatar);card.appendChild(body);
     container.appendChild(card);
   });
   renderPag('cli-pag',PAG_CLI,total,function(pg){PAG_CLI=pg;renderClients();});
