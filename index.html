@@ -1975,14 +1975,7 @@ function goTo(id){
         }
       });
     }
-    // Marcar todos como vistos después de 5 segundos
-    setTimeout(function(){
-      if(document.getElementById('sc-history').classList.contains('active')){
-        markAllOrdersSeen();
-        document.querySelectorAll('.ocard.new-order').forEach(function(card){card.classList.remove('new-order');});
-        document.querySelectorAll('.onew-badge').forEach(function(b){b.remove();});
-      }
-    },5000);
+    // No marcar automáticamente — solo al ver el PDF
   }
   if(id==='clients'){renderClients();getSellersAsync();}
   if(id==='config')loadConfig();
@@ -3261,15 +3254,17 @@ function verPDFpedido(idx){
   var orders=getOrds();
   var order=orders[idx];
   if(!order){toast('Pedido no encontrado','err');return;}
-  // Marcar como visto al abrir PDF
+  // Marcar como VISTO solo al abrir el PDF
   markOrderSeen(order.id);
-  // Quitar clase new-order de la tarjeta si existe
-  var cards=document.querySelectorAll('.ocard.new-order');
-  cards.forEach(function(card){
+  // Quitar badge NUEVO de esta tarjeta específica sin re-renderizar todo
+  document.querySelectorAll('.ocard').forEach(function(card){
     var oidEl=card.querySelector('.oid');
-    if(oidEl&&oidEl.textContent.includes(order.id)){card.classList.remove('new-order');}
+    if(oidEl&&oidEl.textContent.includes(order.id)){
+      card.classList.remove('new-order');
+      var badge=card.querySelector('.onew-badge');
+      if(badge)badge.remove();
+    }
   });
-  renderHistory();
   generarPDF(order,getCfg());
 }
 
