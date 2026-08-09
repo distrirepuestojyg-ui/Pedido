@@ -2407,8 +2407,30 @@ async function getClientsAsync(){
 }
 
 async function pushClientToSB(cli){
-  if(!_sbReady)return;
-  await sbUpsert('clientes',{id:cli.id,name:cli.name,doc:cli.doc||null,tel:cli.tel||null,city:cli.city||null,addr:cli.addr||null,seller:cli.seller||null},'id');
+  if(!_sbReady){console.warn('SB no listo - cliente no sincronizado');return;}
+  try{
+    var pref='return=minimal,resolution=merge-duplicates';
+    var url=SB_URL+'/rest/v1/clientes?on_conflict=id';
+    var body={id:cli.id,name:cli.name,doc:cli.doc||null,tel:cli.tel||null,city:cli.city||null,addr:cli.addr||null,seller:cli.seller||null};
+    var r=await sbFetch(url,{
+      method:'POST',
+      headers:Object.assign({'Prefer':pref},sbHeaders(true)),
+      body:JSON.stringify([body])
+    },10000);
+    if(!r.ok){
+      var errText=await r.text();
+      console.warn('Error guardando cliente ('+r.status+'):',errText);
+      if(r.status===404||errText.includes('relation')||errText.includes('does not exist')){
+        toast('La tabla "clientes" no existe en Supabase. Ejecuta el SQL del schema.','err');
+      } else {
+        toast('Error al guardar cliente: '+r.status,'err');
+      }
+    } else {
+      console.log('Cliente guardado en Supabase OK');
+    }
+  }catch(e){
+    console.warn('pushClientToSB error:',e.message);
+  }
 }
 
 async function deleteClientFromSB(id){
@@ -2578,8 +2600,28 @@ async function getSellersAsync(){
 }
 
 async function pushSellerToSB(s){
-  if(!_sbReady)return;
-  await sbUpsert('vendedores',{id:s.id,name:s.name,tel:s.tel||null,email:s.email||null,zone:s.zone||null},'id');
+  if(!_sbReady){console.warn('SB no listo - vendedor no sincronizado');return;}
+  try{
+    var pref='return=minimal,resolution=merge-duplicates';
+    var url=SB_URL+'/rest/v1/vendedores?on_conflict=id';
+    var body={id:s.id,name:s.name,tel:s.tel||null,email:s.email||null,zone:s.zone||null};
+    var r=await sbFetch(url,{
+      method:'POST',
+      headers:Object.assign({'Prefer':pref},sbHeaders(true)),
+      body:JSON.stringify([body])
+    },10000);
+    if(!r.ok){
+      var errText=await r.text();
+      console.warn('Error guardando vendedor ('+r.status+'):',errText);
+      if(r.status===404||errText.includes('relation')||errText.includes('does not exist')){
+        toast('La tabla "vendedores" no existe en Supabase. Ejecuta el SQL del schema.','err');
+      }
+    } else {
+      console.log('Vendedor guardado en Supabase OK');
+    }
+  }catch(e){
+    console.warn('pushSellerToSB error:',e.message);
+  }
 }
 
 async function deleteSellerFromSB(id){
