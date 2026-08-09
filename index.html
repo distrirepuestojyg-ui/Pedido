@@ -1523,7 +1523,7 @@ function _memRemove(key){
 
 // ─── MAPPERS ────────────────────────────────────────────────────────────────
 function mapProd(p){return{id:p.id,ref:p.ref||'',name:p.name,cat:p.cat,price:parseFloat(p.price)||0,stock:parseInt(p.stock)||0,min:parseInt(p.min_stock)||0,brand:p.brand||'',photo:p.photo||'',allowNoStock:!!p.allow_nostock,dscto:parseFloat(p.dscto)||0};}
-function mapOrder(o){return{id:o.id,client:o.client,items:o.items,subtotal:parseFloat(o.subtotal)||0,ivaPct:parseFloat(o.iva_pct)||0,ivaNom:o.iva_nom||'IVA',tax:parseFloat(o.tax)||0,total:parseFloat(o.total)||0,date:o.date_str};}
+function mapOrder(o){return{id:o.id,client:o.client,items:o.items,subtotal:parseFloat(o.subtotal)||0,ivaPct:parseFloat(o.iva_pct)||0,ivaNom:o.iva_nom||'IVA',tax:parseFloat(o.tax)||0,total:parseFloat(o.total)||0,date:o.date_str,visto:!!o.visto};}
 function pick(sbVal,local){return (sbVal!==null&&sbVal!==undefined)?sbVal:local;}
 function mapCfgFromSB(sc,existing){
   var mapped={
@@ -1579,7 +1579,7 @@ async function pushProductToSB(prod){
 async function deleteProductFromSB(id){if(!_sbReady)return;await sbDelete('productos','id=eq.'+id);}
 async function pushOrderToSB(order){
   if(!_sbReady)return;
-  await sbUpsert('pedidos',{id:order.id,client:order.client,items:order.items,subtotal:order.subtotal,iva_pct:order.ivaPct,iva_nom:order.ivaNom,tax:order.tax,total:order.total,date_str:order.date},'id');
+  await sbUpsert('pedidos',{id:order.id,client:order.client,items:order.items,subtotal:order.subtotal,iva_pct:order.ivaPct,iva_nom:order.ivaNom,tax:order.tax,total:order.total,date_str:order.date,visto:order.visto||false},'id');
 }
 async function deleteOrdersFromSB(ids){
   if(!_sbReady)return;
@@ -2313,7 +2313,7 @@ async function confirmOrder(){
   var preOrder={id:consec,client:client,clientData:_selectedClient||null,
     items:items,subtotalBruto:subBrutoOrder,descuento:totalDsctoOrder,
     subtotal:sub,ivaPct:ivaPct,ivaNom:cfg.ivaNom||'IVA',tax:tax,
-    total:sub+tax,date:new Date().toLocaleString('es-CO')};
+    total:sub+tax,date:new Date().toLocaleString('es-CO'),visto:false};
   ordersNow.unshift(preOrder);
   saveOrds(ordersNow);
 
@@ -3164,15 +3164,45 @@ function getSeenOrders(){
   try{var s=localStorage.getItem(SEEN_K);return s?JSON.parse(s):[];}catch(e){return [];}
 }
 function isNewOrder(id){
+  // Primero verificar en los datos del pedido (viene de SB)
+  var orders=getOrds();
+  var o=orders.find(function(x){return x.id===id;});
+  if(o&&o.visto===true)return false;
+  // Fallback a memoria local
   return getSeenOrders().indexOf(id)<0;
 }
 function markOrderSeen(id){
+  // 1. Actualizar en memoria local
   var seen=getSeenOrders();
   if(seen.indexOf(id)<0){seen.push(id);_seenMem=seen;try{localStorage.setItem(SEEN_K,JSON.stringify(seen));}catch(e){}}
+  // 2. Actualizar en caché _MEM
+  var orders=getOrds();
+  var idx=orders.findIndex(function(o){return o.id===id;});
+  if(idx>=0){orders[idx].visto=true;saveOrds(orders);}
+  // 3. Actualizar en Supabase (todos los dispositivos lo verán)
+  if(_sbReady){
+    sbPatch('pedidos','id=eq.'+id,{visto:true}).catch(function(e){
+      console.warn('Error marcando visto en SB:',e);
+    });
+  }
 }
 function markAllOrdersSeen(){
-  var ids=getOrds().map(function(o){return o.id;});
+  var orders=getOrds();
+  var ids=orders.map(function(o){return o.id;});
   _seenMem=ids;try{localStorage.setItem(SEEN_K,JSON.stringify(ids));}catch(e){}
+  // Actualizar todos en caché
+  orders.forEach(function(o){o.visto=true;});
+  saveOrds(orders);
+  // Actualizar en SB los que no estaban vistos
+  if(_sbReady){
+    var noVistos=ids.filter(function(id){
+      var o=orders.find(function(x){return x.id===id;});
+      return o&&!o.visto;
+    });
+    noVistos.forEach(function(id){
+      sbPatch('pedidos','id=eq.'+id,{visto:true}).catch(function(){});
+    });
+  }
 }
 
 function renderHistory(){
