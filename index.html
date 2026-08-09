@@ -299,7 +299,10 @@ button{cursor:pointer;border:none;background:none}
 
 /* ── HISTORY ── */
 .htop{padding:12px;flex-shrink:0}
-.ocard{background:var(--bg2);border:1px solid var(--b);border-radius:var(--r2);padding:14px;margin-bottom:8px}
+.ocard{background:var(--bg2);border:1px solid var(--b);border-radius:var(--r2);padding:14px;margin-bottom:8px;transition:border-color .3s}
+.ocard.new-order{border-color:var(--tl);background:var(--tld)}
+.onew-badge{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;color:var(--tl);background:var(--tld);border:1px solid var(--tl);border-radius:99px;padding:2px 8px;margin-left:6px;animation:pulse-badge 1.5s ease-in-out infinite}
+@keyframes pulse-badge{0%,100%{opacity:1}50%{opacity:.5}}
 .ohead{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
 .oid{font-family:'DM Mono',monospace;font-size:10px;color:var(--t3)}
 .oclient{font-size:14px;font-weight:500;margin-top:2px}
@@ -1903,7 +1906,18 @@ function goTo(id){
   if(id==='catalog')renderCatalog();
   if(id==='cart')renderCart();
   if(id==='inventory')renderInventory();
-  if(id==='history')renderHistory();
+  if(id==='history'){
+    renderHistory();
+    // Marcar todos como vistos después de 5 segundos de estar en la pantalla
+    setTimeout(function(){
+      if(document.getElementById('sc-history').classList.contains('active')){
+        markAllOrdersSeen();
+        // Quitar badges sin re-render completo
+        document.querySelectorAll('.ocard.new-order').forEach(function(card){card.classList.remove('new-order');});
+        document.querySelectorAll('.onew-badge').forEach(function(b){b.remove();});
+      }
+    },5000);
+  }
   if(id==='clients'){renderClients();getSellersAsync();}
   if(id==='config')loadConfig();
 }
@@ -3083,12 +3097,14 @@ async function renderHistory(){
   document.getElementById('hlist').innerHTML='';
   ordersPage.forEach(function(o,idx){
     var realIdx=orders.indexOf(o);
+    var esNuevo=isNewOrder(o.id);
     var card=document.createElement('div');
-    card.className='ocard';
+    card.className='ocard'+(esNuevo?' new-order':'');
 
     var head=document.createElement('div');
     head.className='ohead';
-    head.innerHTML='<div><div class="oid">'+o.id+'</div><div class="oclient">'+o.client+'</div></div><div class="odate">'+o.date+'</div>';
+    var badgeNuevo=esNuevo?'<span class="onew-badge"><svg width="7" height="7" viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4"/></svg>NUEVO</span>':'';
+    head.innerHTML='<div><div class="oid">'+o.id+badgeNuevo+'</div><div class="oclient">'+o.client+'</div></div><div class="odate">'+o.date+'</div>';
 
     var items=document.createElement('div');
     items.className='oitems';
@@ -3128,6 +3144,15 @@ function verPDFpedido(idx){
   var orders=getOrds();
   var order=orders[idx];
   if(!order){toast('Pedido no encontrado','err');return;}
+  // Marcar como visto al abrir PDF
+  markOrderSeen(order.id);
+  // Quitar clase new-order de la tarjeta si existe
+  var cards=document.querySelectorAll('.ocard.new-order');
+  cards.forEach(function(card){
+    var oidEl=card.querySelector('.oid');
+    if(oidEl&&oidEl.textContent.includes(order.id)){card.classList.remove('new-order');}
+  });
+  renderHistory();
   generarPDF(order,getCfg());
 }
 
