@@ -3849,37 +3849,56 @@ function isNewOrder(id){
   return getSeenOrders().indexOf(id)<0;
 }
 async function markOrderSeen(id){
-  // 1. Actualizar en memoria local inmediatamente
+  // 1. Local inmediato
   var seen=getSeenOrders();
   if(seen.indexOf(id)<0){seen.push(id);_seenMem=seen;try{localStorage.setItem(SEEN_K,JSON.stringify(seen));}catch(e){}}
-  // 2. Actualizar campo visto en caché local
   var orders=getOrds();
   var oidx=orders.findIndex(function(o){return o.id===id;});
   if(oidx>=0){orders[oidx].visto=true;saveOrds(orders);}
-  // 3. PATCH directo solo el campo visto — más simple y confiable
-  if(!_sbReady)return;
-  try{
-    // PATCH actualiza solo los campos indicados sin tocar los demás
-    var patchUrl=SB_URL+'/rest/v1/pedidos?id=eq.'+encodeURIComponent(id);
-    var r=await sbFetch(patchUrl,{
-      method:'PATCH',
-      headers:Object.assign({'Prefer':'return=minimal'},sbHeaders(true)),
-      body:JSON.stringify({visto:true})
-    },10000);
-    if(r.ok){
-      console.log('Pedido '+id+': visto=true actualizado en SB');
-      // Forzar bgSync para que todos los dispositivos vean el cambio
-      setTimeout(function(){bgSync('pedidos');},500);
-    } else {
-      var txt=await r.text();
-      console.warn('PATCH visto error HTTP '+r.status+':', txt);
-      if(txt.indexOf('visto')>=0||r.status===400){
-        toast('Ejecuta el SQL: ALTER TABLE pedidos ADD COLUMN visto boolean DEFAULT false','err');
+
+  if(!_sbReady){console.warn('markOrderSeen: SB no listo');return;}
+
+  // 2. PATCH a Supabase — tres intentos con logging detallado
+  var patchUrl=SB_URL+'/rest/v1/pedidos?id=eq.'+id;
+  console.log('PATCH visto:', patchUrl);
+
+  var success=false;
+  for(var attempt=0;attempt<3;attempt++){
+    try{
+      var r=await fetch(patchUrl,{
+        method:'PATCH',
+        mode:'cors',
+        headers:{
+          'Content-Type':'application/json',
+          'apikey':SB_KEY,
+          'Authorization':'Bearer '+SB_KEY,
+          'Prefer':'return=representation'
+        },
+        body:JSON.stringify({visto:true})
+      });
+      var respText=await r.text();
+      console.log('PATCH attempt '+(attempt+1)+' → HTTP '+r.status+' | '+respText.slice(0,200));
+      if(r.ok){
+        success=true;
+        toast('Pedido revisado ✓','ok');
+        setTimeout(function(){bgSync('pedidos');},800);
+        break;
+      } else {
+        // Mostrar error detallado
+        if(r.status===400&&respText.indexOf('visto')>=0){
+          toast('Falta columna visto en SB. Ejecuta el SQL del schema.','err');
+          break;
+        } else if(r.status===404){
+          toast('Pedido no encontrado en SB','err');
+          break;
+        }
       }
+    }catch(e){
+      console.warn('PATCH attempt '+(attempt+1)+' error:',e.message);
+      if(attempt<2)await new Promise(function(res){setTimeout(res,1000);});
     }
-  }catch(e){
-    console.warn('markOrderSeen error:',e.message);
   }
+  if(!success)console.warn('markOrderSeen: no se pudo actualizar visto en SB después de 3 intentos');
 }
 function markAllOrdersSeen(){
   var orders=getOrds();
