@@ -3405,22 +3405,27 @@ function renderSellers(){
     return;
   }
   container.innerHTML='';
+    container.innerHTML='';
   list.forEach(function(s){
-    var card=document.createElement('div');card.className='vcard';
-    var info=document.createElement('div');info.className='vcard-info';
-    var nm=document.createElement('div');nm.className='vcard-name';nm.textContent=s.name;
-    var sub=document.createElement('div');sub.className='vcard-sub';
-    var lines=[];if(s.tel)lines.push(s.tel);if(s.email)lines.push(s.email);if(s.zone)lines.push('Zona: '+s.zone);
-    sub.textContent=lines.join(' · ');
-    info.appendChild(nm);info.appendChild(sub);
-    var btns=document.createElement('div');btns.className='vcard-btns';
-    var editBtn=document.createElement('button');editBtn.className='irb';editBtn.textContent='✏';
-    editBtn.onclick=function(){openSellerForm(s.id);};
-    var delBtn=document.createElement('button');delBtn.className='irb danger';delBtn.textContent='🗑';
-    delBtn.onclick=function(){deleteSeller(s.id);};
-    btns.appendChild(editBtn);btns.appendChild(delBtn);
-    card.appendChild(info);card.appendChild(btns);
-    container.appendChild(card);
+    var ini=(s.name||'?')[0].toUpperCase();
+    var row=document.createElement('div');row.className='irow';
+    var thumb=document.createElement('div');
+    thumb.className='ithumb';
+    thumb.style.cssText='background:linear-gradient(135deg,var(--tl),#2ecc8f);color:#fff;font-size:16px;font-weight:700';
+    thumb.textContent=ini;
+    var mid=document.createElement('div');mid.className='imid';
+    var nm=document.createElement('div');nm.className='inm';nm.textContent=s.name;
+    var ref=document.createElement('div');ref.className='iref';ref.textContent='📞 '+(s.tel||'—');
+    mid.appendChild(nm);mid.appendChild(ref);
+    if(s.email){var em=document.createElement('div');em.style.cssText='font-size:10px;color:var(--t3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';em.textContent='✉ '+s.email;mid.appendChild(em);}
+    var right=document.createElement('div');right.className='iright';
+    if(s.zone){var zb=document.createElement('span');zb.style.cssText='font-size:9px;background:var(--tld);border:1px solid var(--tl);border-radius:5px;padding:1px 6px;color:var(--tl);display:block;margin-bottom:6px';zb.textContent=s.zone;right.appendChild(zb);}
+    var btns=document.createElement('div');btns.className='irbtns';
+    var eb=document.createElement('button');eb.className='irb';eb.textContent='✏';eb.onclick=(function(id){return function(){openSellerForm(id);};})(s.id);
+    var db=document.createElement('button');db.className='irb danger';db.textContent='🗑';db.onclick=(function(id){return function(){deleteSeller(id);};})(s.id);
+    btns.appendChild(eb);btns.appendChild(db);right.appendChild(btns);
+    row.appendChild(thumb);row.appendChild(mid);row.appendChild(right);
+    container.appendChild(row);
   });
 }
 
@@ -3560,57 +3565,31 @@ function renderClients(){
   if(PAG_CLI>total)PAG_CLI=1;
   var page=list.slice((PAG_CLI-1)*PER_PAGE_CLI,PAG_CLI*PER_PAGE_CLI);
   container.innerHTML='';
+  container.innerHTML='';
   page.forEach(function(cli){
-    var card=document.createElement('div');card.className='clicard';
-
-    // Avatar con inicial
-    var avatar=document.createElement('div');avatar.className='clicard-avatar';
-    avatar.textContent=(cli.name||'?')[0].toUpperCase();
-
-    // Cuerpo
-    var body=document.createElement('div');body.className='clicard-body';
-
-    // Nombre
-    var nm=document.createElement('div');nm.className='clicard-name';nm.textContent=cli.name;
-
-    // Grid de campos
-    var grid=document.createElement('div');grid.className='clicard-grid';
-    var fields=[
-      {label:'CC / NIT',   value:cli.doc||'—'},
-      {label:'Teléfono',   value:cli.tel||'—'},
-      {label:'Ciudad',     value:cli.city||'—'},
-      {label:'Vendedor',   value:cli.seller||'—'},
-    ];
-    fields.forEach(function(f){
-      var field=document.createElement('div');field.className='clicard-field';
-      var lbl=document.createElement('div');lbl.className='clicard-label';lbl.textContent=f.label;
-      var val=document.createElement('div');val.className='clicard-value';val.textContent=f.value;
-      field.appendChild(lbl);field.appendChild(val);
-      grid.appendChild(field);
-    });
-
-    // Dirección (fila completa si existe)
-    var addrEl=null;
-    if(cli.addr){
-      addrEl=document.createElement('div');addrEl.className='clicard-addr';
-      addrEl.textContent='📍 '+cli.addr;
-    }
-
-    // Botones
-    var btns=document.createElement('div');btns.className='clicard-btns';
-    var editBtn=document.createElement('button');editBtn.className='iab';
-    editBtn.innerHTML='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Editar';
-    editBtn.onclick=function(){openClientForm(cli.id);};
-    var delBtn=document.createElement('button');delBtn.className='iab';delBtn.style.cssText='color:var(--rd);border-color:var(--rdd);background:var(--rdd)';
-    delBtn.innerHTML='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
-    delBtn.onclick=function(){deleteClient(cli.id);};
-    btns.appendChild(editBtn);btns.appendChild(delBtn);
-
-    body.appendChild(nm);body.appendChild(grid);
-    if(addrEl)body.appendChild(addrEl);
-    body.appendChild(btns);
-    card.appendChild(avatar);card.appendChild(body);
-    container.appendChild(card);
+    var ini=(cli.name||'?')[0].toUpperCase();
+    var row=document.createElement('div');row.className='irow';
+    // Thumb con inicial naranja
+    var thumb=document.createElement('div');thumb.className='ithumb';
+    thumb.style.cssText='background:linear-gradient(135deg,var(--or),#ff9a5c);color:#fff;font-size:16px;font-weight:700';
+    thumb.textContent=ini;
+    // Info central
+    var mid=document.createElement('div');mid.className='imid';
+    var nm=document.createElement('div');nm.className='inm';nm.textContent=cli.name;
+    var ref=document.createElement('div');ref.className='iref';
+    ref.textContent=(cli.tel||'—')+(cli.city?' · '+cli.city:'');
+    mid.appendChild(nm);mid.appendChild(ref);
+    if(cli.addr){var ad=document.createElement('div');ad.style.cssText='font-size:10px;color:var(--t3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';ad.textContent='📍 '+cli.addr;mid.appendChild(ad);}
+    if(cli.doc){var dc=document.createElement('div');dc.style.cssText='font-size:10px;color:var(--t3);margin-top:2px';dc.textContent='CC/NIT: '+cli.doc;mid.appendChild(dc);}
+    // Derecha
+    var right=document.createElement('div');right.className='iright';
+    if(cli.seller){var sb=document.createElement('span');sb.style.cssText='font-size:9px;background:var(--bg3);border:1px solid var(--b);border-radius:5px;padding:1px 6px;color:var(--t2);display:block;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80px';sb.textContent=cli.seller;right.appendChild(sb);}
+    var btns=document.createElement('div');btns.className='irbtns';
+    var eb=document.createElement('button');eb.className='irb';eb.textContent='✏';eb.onclick=(function(id){return function(){openClientForm(id);};})(cli.id);
+    var db=document.createElement('button');db.className='irb danger';db.textContent='🗑';db.onclick=(function(id){return function(){deleteClient(id);};})(cli.id);
+    btns.appendChild(eb);btns.appendChild(db);right.appendChild(btns);
+    row.appendChild(thumb);row.appendChild(mid);row.appendChild(right);
+    container.appendChild(row);
   });
   renderPag('cli-pag',PAG_CLI,total,function(pg){PAG_CLI=pg;renderClients();});
 }
