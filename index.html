@@ -3855,50 +3855,31 @@ async function markOrderSeen(id){
   var orders=getOrds();
   var oidx=orders.findIndex(function(o){return o.id===id;});
   if(oidx>=0){orders[oidx].visto=true;saveOrds(orders);}
-
-  if(!_sbReady){console.warn('markOrderSeen: SB no listo');return;}
-
-  // 2. PATCH a Supabase — tres intentos con logging detallado
-  var patchUrl=SB_URL+'/rest/v1/pedidos?id=eq.'+id;
-  console.log('PATCH visto:', patchUrl);
-
-  var success=false;
-  for(var attempt=0;attempt<3;attempt++){
-    try{
-      var r=await fetch(patchUrl,{
-        method:'PATCH',
-        mode:'cors',
-        headers:{
-          'Content-Type':'application/json',
-          'apikey':SB_KEY,
-          'Authorization':'Bearer '+SB_KEY,
-          'Prefer':'return=representation'
-        },
-        body:JSON.stringify({visto:true})
-      });
-      var respText=await r.text();
-      console.log('PATCH attempt '+(attempt+1)+' → HTTP '+r.status+' | '+respText.slice(0,200));
-      if(r.ok){
-        success=true;
-        toast('Pedido revisado ✓','ok');
-        setTimeout(function(){bgSync('pedidos');},800);
-        break;
-      } else {
-        // Mostrar error detallado
-        if(r.status===400&&respText.indexOf('visto')>=0){
-          toast('Falta columna visto en SB. Ejecuta el SQL del schema.','err');
-          break;
-        } else if(r.status===404){
-          toast('Pedido no encontrado en SB','err');
-          break;
-        }
-      }
-    }catch(e){
-      console.warn('PATCH attempt '+(attempt+1)+' error:',e.message);
-      if(attempt<2)await new Promise(function(res){setTimeout(res,1000);});
+  if(!_sbReady)return;
+  // 2. PATCH directo a Supabase
+  try{
+    var r=await fetch(SB_URL+'/rest/v1/pedidos?id=eq.'+id,{
+      method:'PATCH',
+      mode:'cors',
+      headers:{
+        'Content-Type':'application/json',
+        'apikey':SB_KEY,
+        'Authorization':'Bearer '+SB_KEY,
+        'Prefer':'return=representation'
+      },
+      body:JSON.stringify({visto:true})
+    });
+    var data=[];try{data=JSON.parse(await r.text());}catch(e){}
+    if(r.ok&&data.length>0){
+      console.log('Pedido '+id+' marcado visto=true en SB ✓');
+      toast('Pedido revisado ✓','ok');
+      setTimeout(function(){bgSync('pedidos');},800);
+    } else if(r.ok&&data.length===0){
+      console.warn('PATCH visto: HTTP 200 pero 0 filas — verificar RLS en Supabase');
     }
+  }catch(e){
+    console.warn('markOrderSeen error:',e.message);
   }
-  if(!success)console.warn('markOrderSeen: no se pudo actualizar visto en SB después de 3 intentos');
 }
 function markAllOrdersSeen(){
   var orders=getOrds();
