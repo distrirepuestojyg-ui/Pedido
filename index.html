@@ -2002,26 +2002,36 @@ async function verificarAdminConDB(){
   if(!username){userInp.classList.add('error');errEl.textContent='Ingresa el usuario';return;}
   if(!password){passInp.classList.add('error');errEl.textContent='Ingresa la contraseña';return;}
 
-  // 1. Buscar en maestro de usuarios
-  var users=await getUsersAsync();
-  var found=users.find(function(u){return u.username===username&&u.password===password&&u.activo!==false;});
+  var FULL_PERMS=ALL_PERMS.map(function(p){return p.id;});
 
-  if(found){
-    _currentUser=found;
-    cerrarLoginAdmin();
-    // Construir nav según permisos
-    role='admin';
-    _bootWithUser(found);
-    return;
-  }
-
-  // 2. Fallback al admin de config (compatibilidad)
+  // 1. Verificar primero contra config local (admin/1234) — sin esperar SB
   var cfg=getCfg();
-  if(username===(cfg.adminUser||'admin')&&password===(cfg.adminPass||'1234')){
-    _currentUser={id:'admin',name:'Administrador',username:username,role:'superadmin',perms:ALL_PERMS.map(function(p){return p.id;})};
+  var cfgUser=cfg.adminUser||'admin';
+  var cfgPass=cfg.adminPass||'1234';
+  if(username===cfgUser&&password===cfgPass){
+    _currentUser={id:'USR-ADMIN',name:'Administrador',username:username,role:'superadmin',perms:FULL_PERMS};
     cerrarLoginAdmin();
     role='admin';
     _bootWithUser(_currentUser);
+    return;
+  }
+
+  // 2. Buscar en maestro de usuarios de Supabase
+  var found=null;
+  try{
+    var users=await getUsersAsync();
+    found=users.find(function(u){
+      return u.username===username&&u.password===password&&u.activo!==false;
+    });
+  }catch(e){console.warn('getUsersAsync error:',e);}
+
+  if(found){
+    _currentUser=found;
+    // Asegurar que perms es un array con IDs válidos
+    if(!found.perms||!found.perms.length)found.perms=ROLES[found.role]?ROLES[found.role].perms:FULL_PERMS;
+    cerrarLoginAdmin();
+    role='admin';
+    _bootWithUser(found);
     return;
   }
 
@@ -2031,33 +2041,43 @@ async function verificarAdminConDB(){
 }
 
 function _bootWithUser(user){
-  // Mostrar nombre del usuario en el pill
+  // 1. Mostrar app, ocultar login (igual que boot())
+  document.getElementById('login-screen').style.display='none';
+  var app=document.getElementById('app');
+  app.style.display='flex';app.style.flexDirection='column';
+
+  // 2. Pill con nombre del usuario
   var pill=document.getElementById('rpill');
   if(pill){pill.textContent='⚙ '+user.name.split(' ')[0];pill.className='rpill rp-a';}
-  // Construir nav con permisos del usuario
+
+  // 3. Aplicar tema y construir nav con permisos
+  applyStoredTheme();
   _buildNavForUser(user);
-  // Ir a primer pantalla permitida
-  var firstPerm=user.perms&&user.perms.length?user.perms[0]:'catalog';
-  loadCarts();
-  goTo(firstPerm);
-  // Iniciar sync SB
-  if(_sbReady){syncFromSupabase().then(function(){refreshCurrentScreen();});startAutoSync();}
+
+  // 4. Iniciar sync SB
+  if(_sbReady){
+    syncFromSupabase().then(function(){refreshCurrentScreen();});
+    startAutoSync();
+  }
 }
 
 function _buildNavForUser(user){
   var perms=user.perms||ALL_PERMS.map(function(p){return p.id;});
-  var allTabs=NAV_ADMIN; // todos los tabs posibles
-  var allowed=allTabs.filter(function(t){return perms.indexOf(t[0])>=0;});
+  // Filtrar tabs según permisos y reusar buildNav con los tabs filtrados
+  var _origNav=NAV_ADMIN;
+  var _filteredNav=_origNav.filter(function(t){return perms.indexOf(t[0])>=0;});
+  // Temporarily override buildNav tabs
   var nav=document.getElementById('bnav');
   if(!nav)return;
-  nav.innerHTML='';
-  allowed.forEach(function(t){
-    var btn=document.createElement('div');btn.className='bn';
-    btn.onclick=function(){goTo(t[0]);};
-    btn.innerHTML='<div class="bn-ico">'+SVG[t[1]]+'</div><div class="bn-lbl">'+t[2]+'</div>';
-    nav.appendChild(btn);
-  });
-  if(allowed.length)goTo(allowed[0][0]);
+  nav.innerHTML=_filteredNav.map(function(item){
+    var id=item[0];var icon=item[1];var lbl=item[2];
+    var cartBadge=(id==='cart')?('<span class="cbadge" id="cbadge">0</span>'):'';
+    var icoSpan='<span style="color:var(--t3)" id="bni-ico-'+id+'">'+(SVG[icon]||'')+'</span>';
+    var icoWrap='<div style="position:relative;width:26px;height:26px;display:flex;align-items:center;justify-content:center">'+icoSpan+cartBadge+'</div>';
+    var lblSpan='<span class="bni-lbl" id="bnl-'+id+'">'+lbl+'</span>';
+    return '<div class="bni" onclick="goTo('+JSON.stringify(id)+')" id="bn-'+id+'">'+icoWrap+lblSpan+'</div>';
+  }).join('');
+  if(_filteredNav.length){loadCarts();goTo(_filteredNav[0][0]);}
 }
 
 function verificarAdmin(){
