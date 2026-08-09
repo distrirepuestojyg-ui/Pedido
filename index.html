@@ -1488,6 +1488,39 @@ async function sbPatch(table,filter,data){
 
 const DBK='mrp_db3', ORK='mrp_ord3', CFG_K='mrp_cfg3';
 
+// ─── IN-MEMORY STORAGE (funciona en todos los entornos) ─────────────────────
+// Usa un objeto en memoria como fuente principal, con localStorage como backup
+var _MEM = {db:null, ords:null, cfg:null, cli:null, sel:null};
+
+function _memGet(key){
+  // Primero memoria, luego localStorage
+  if(key===DBK) return _MEM.db;
+  if(key===ORK) return _MEM.ords;
+  if(key===CFG_K) return _MEM.cfg;
+  if(key===CLI_K) return _MEM.cli;
+  if(key===SEL_K) return _MEM.sel;
+  try{return JSON.parse(localStorage.getItem(key));}catch(e){return null;}
+}
+
+function _memSet(key, val){
+  // Guardar en memoria Y localStorage
+  if(key===DBK) _MEM.db=val;
+  else if(key===ORK) _MEM.ords=val;
+  else if(key===CFG_K) _MEM.cfg=val;
+  else if(key===CLI_K) _MEM.cli=val;
+  else if(key===SEL_K) _MEM.sel=val;
+  try{localStorage.setItem(key,JSON.stringify(val));}catch(e){}
+}
+
+function _memRemove(key){
+  if(key===DBK) _MEM.db=null;
+  else if(key===ORK) _MEM.ords=null;
+  else if(key===CFG_K) _MEM.cfg=null;
+  else if(key===CLI_K) _MEM.cli=null;
+  else if(key===SEL_K) _MEM.sel=null;
+  try{localStorage.removeItem(key);}catch(e){}
+}
+
 // ─── MAPPERS ────────────────────────────────────────────────────────────────
 function mapProd(p){return{id:p.id,ref:p.ref||'',name:p.name,cat:p.cat,price:parseFloat(p.price)||0,stock:parseInt(p.stock)||0,min:parseInt(p.min_stock)||0,brand:p.brand||'',photo:p.photo||'',allowNoStock:!!p.allow_nostock,dscto:parseFloat(p.dscto)||0};}
 function mapOrder(o){return{id:o.id,client:o.client,items:o.items,subtotal:parseFloat(o.subtotal)||0,ivaPct:parseFloat(o.iva_pct)||0,ivaNom:o.iva_nom||'IVA',tax:parseFloat(o.tax)||0,total:parseFloat(o.total)||0,date:o.date_str};}
@@ -1514,42 +1547,29 @@ function mapCfgFromSB(sc,existing){
   // Auto-activar credenciales SB en dispositivos nuevos
   if(mapped.sbUrl&&mapped.sbKey&&(!_sbReady||!SB_URL)){
     SB_URL=mapped.sbUrl;SB_KEY=mapped.sbKey;_sbReady=true;
-    localStorage.setItem('mrp_sb_url',mapped.sbUrl);
-    localStorage.setItem('mrp_sb_key',mapped.sbKey);
+    try{localStorage.setItem('mrp_sb_url',mapped.sbUrl);}catch(e){}
+    try{localStorage.setItem('mrp_sb_key',mapped.sbKey);}catch(e){}
     console.log('Supabase: credenciales cargadas desde config');
   }
   return mapped;
 }
 
 // ─── GETTERS — leen de Supabase si está listo, si no de localStorage ────────
-function getDBAsync(){
-  // Siempre retorna caché local INMEDIATAMENTE (sin await)
-  var local=localStorage.getItem(DBK);
-  return Promise.resolve(local?JSON.parse(local):SEED);
-}
-function getOrdsAsync(){
-  var local=localStorage.getItem(ORK);
-  return Promise.resolve(local?JSON.parse(local):[]);
-}
+function getDBAsync(){return Promise.resolve(getDB());}
+function getOrdsAsync(){return Promise.resolve(getOrds());}
 function getCfgAsync(){
   return Promise.resolve(getCfg());
 }
 
 // ─── GETTERS SÍNCRONOS — leen solo de localStorage (caché) ──────────────────
-function getDB(){var r=localStorage.getItem(DBK);return r?JSON.parse(r):SEED;}
-function getOrds(){var r=localStorage.getItem(ORK);return r?JSON.parse(r):[];}
-function getCfg(){var r=localStorage.getItem(CFG_K);return r?JSON.parse(r):{iva:19,ivaNom:'IVA',wa:'',empresa:'MotoRepuestos Pro',nit:'',tel:'',cats:['Motor','Frenos','Eléctrico','Transmisión','Suspensión','Aceites','Llantas'],brands:['Universal','NGK','EBC','Yuasa','DID','JT','YSS','Wave','Honda','Yamaha'],bgTheme:'dark',logo:'',bannerImg:'',adminUser:'admin',adminPass:'1234'};}
+function getDB(){var r=_memGet(DBK);return r||SEED;}
+function getOrds(){return _memGet(ORK)||[];}
+function getCfg(){return _memGet(CFG_K)||{iva:19,ivaNom:'IVA',wa:'',empresa:'MotoRepuestos Pro',nit:'',tel:'',cats:['Motor','Frenos','Eléctrico','Transmisión','Suspensión','Aceites','Llantas'],brands:['Universal','NGK','EBC','Yuasa','DID','JT','YSS','Wave','Honda','Yamaha'],bgTheme:'dark',logo:'',bannerImg:'',adminUser:'admin',adminPass:'1234'};}
 
 // ─── SETTERS — escriben en Supabase Y en localStorage simultáneamente ───────
-function saveDB(d){
-  localStorage.setItem(DBK,JSON.stringify(d));
-}
-function saveOrds(d){
-  localStorage.setItem(ORK,JSON.stringify(d));
-}
-function saveCfg(d){
-  localStorage.setItem(CFG_K,JSON.stringify(d));
-}
+function saveDB(d){_memSet(DBK,d);}
+function saveOrds(d){_memSet(ORK,d);}
+function saveCfg(d){_memSet(CFG_K,d);}
 
 // ─── PUSH A SUPABASE — escritura directa ────────────────────────────────────
 async function pushProductToSB(prod){
@@ -1584,23 +1604,23 @@ async function syncFromSupabase(){
   var ok=0;
   // Productos
   if(results[0].status==='fulfilled'&&results[0].value&&results[0].value.length){
-    localStorage.setItem(DBK,JSON.stringify(results[0].value.map(mapProd)));ok++;
+    _memSet(DBK,results[0].value.map(mapProd));ok++;
   }
   // Pedidos
   if(results[1].status==='fulfilled'&&results[1].value){
-    localStorage.setItem(ORK,JSON.stringify(results[1].value.map(mapOrder)));ok++;
+    _memSet(ORK,results[1].value.map(mapOrder));ok++;
   }
   // Config
   if(results[2].status==='fulfilled'&&results[2].value&&results[2].value.length){
     var merged=mapCfgFromSB(results[2].value[0],getCfg());
-    localStorage.setItem(CFG_K,JSON.stringify(merged));ok++;
+    _memSet(CFG_K,merged);ok++;
   }
   // Clientes
   if(results[3]&&results[3].status==='fulfilled'&&results[3].value){
-    localStorage.setItem(CLI_K,JSON.stringify(results[3].value));ok++;
+    _memSet(CLI_K,results[3].value);ok++;
   }
   if(results[4]&&results[4].status==='fulfilled'&&results[4].value){
-    localStorage.setItem(SEL_K,JSON.stringify(results[4].value));ok++;
+    _memSet(SEL_K,results[4].value);ok++;
   }
   if(ok>0){
     console.log('Supabase sync OK ('+ok+'/4)');
@@ -1861,7 +1881,7 @@ async function bgSync(table){
     var r;
     if(table==='productos'){
       r=await sbGetAll('productos','?order=id.asc');
-      if(r&&r.length){localStorage.setItem(DBK,JSON.stringify(r.map(mapProd)));return true;}
+      if(r&&r.length){_memSet(DBK,r.map(mapProd));return true;}
     } else if(table==='pedidos'){
       r=await sbGet('pedidos','?order=created_at.desc');
       if(r){
@@ -1869,25 +1889,25 @@ async function bgSync(table){
         var localOrds=getOrds();
         // Fusionar para no perder pedidos recién creados que aún no llegaron a SB
         if(sbOrds.length>=localOrds.length){
-          localStorage.setItem(ORK,JSON.stringify(sbOrds));
+          _memSet(ORK,sbOrds);
         } else {
           var sbIds=sbOrds.map(function(o){return o.id;});
           var onlyLocal=localOrds.filter(function(o){return sbIds.indexOf(o.id)<0;});
           var fusionados=onlyLocal.concat(sbOrds);
           fusionados.sort(function(a,b){return a.id<b.id?1:-1;});
-          localStorage.setItem(ORK,JSON.stringify(fusionados));
+          _memSet(ORK,fusionados);
         }
         return true;
       }
     } else if(table==='configuracion'){
       r=await sbGet('configuracion','?id=eq.main');
-      if(r&&r.length){localStorage.setItem(CFG_K,JSON.stringify(mapCfgFromSB(r[0],getCfg())));return true;}
+      if(r&&r.length){_memSet(CFG_K,mapCfgFromSB(r[0],getCfg()));return true;}
     } else if(table==='clientes'){
       r=await sbGet('clientes','?order=name.asc');
-      if(r){localStorage.setItem(CLI_K,JSON.stringify(r));return true;}
+      if(r){_memSet(CLI_K,r);return true;}
     } else if(table==='vendedores'){
       r=await sbGet('vendedores','?order=name.asc');
-      if(r){localStorage.setItem(SEL_K,JSON.stringify(r));return true;}
+      if(r){_memSet(SEL_K,r);return true;}
     }
   }catch(e){console.warn('bgSync ('+table+'):',e.message);}
   return false;
@@ -2467,8 +2487,8 @@ var PAG_CLI=1;
 var PER_PAGE_CLI=10;
 var _editClientId=null;
 
-function getClients(){var r=localStorage.getItem(CLI_K);return r?JSON.parse(r):[];}
-function saveClients(d){localStorage.setItem(CLI_K,JSON.stringify(d));}
+function getClients(){return _memGet(CLI_K)||[];}
+function saveClients(d){_memSet(CLI_K,d);}
 
 // Getters async desde Supabase
 function getClientsAsync(){
@@ -2657,8 +2677,8 @@ async function guardarQuickClient(){
 var SEL_K='mrp_sel3';
 var _editSellerId=null;
 
-function getSellers(){var r=localStorage.getItem(SEL_K);return r?JSON.parse(r):[];}
-function saveSellers(d){localStorage.setItem(SEL_K,JSON.stringify(d));}
+function getSellers(){return _memGet(SEL_K)||[];}
+function saveSellers(d){_memSet(SEL_K,d);}
 
 async function getSellersAsync(){
   if(_sbReady){
