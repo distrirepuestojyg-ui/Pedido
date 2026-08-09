@@ -3171,36 +3171,46 @@ function isNewOrder(id){
   // Fallback a memoria local
   return getSeenOrders().indexOf(id)<0;
 }
-function markOrderSeen(id){
+async function markOrderSeen(id){
   // 1. Actualizar en memoria local
   var seen=getSeenOrders();
   if(seen.indexOf(id)<0){seen.push(id);_seenMem=seen;try{localStorage.setItem(SEEN_K,JSON.stringify(seen));}catch(e){}}
-  // 2. Actualizar en caché _MEM
+  // 2. Actualizar campo visto en caché local
   var orders=getOrds();
   var oidx=orders.findIndex(function(o){return o.id===id;});
-  if(oidx>=0){orders[oidx].visto=true;saveOrds(orders);}
-  // 3. Actualizar en Supabase con PATCH directo + log
-  if(_sbReady){
-    console.log('Marcando visto en SB: pedido',id);
-    var patchUrl=SB_URL+'/rest/v1/pedidos?id=eq.'+id;
-    sbFetch(patchUrl,{
-      method:'PATCH',
-      headers:Object.assign({'Prefer':'return=representation'},sbHeaders(true)),
-      body:JSON.stringify({visto:true})
-    },10000).then(function(r){
-      if(r.ok){
-        console.log('Pedido',id,'marcado como visto en SB ✓');
-        toast('Pedido marcado como visto','ok');
-      } else {
-        r.text().then(function(t){
-          console.warn('Error PATCH visto ('+r.status+'):',t);
-          // Si la columna no existe, intentar crearla
-          if(t.includes('column')&&t.includes('visto')){
-            toast('Ejecuta el SQL: ALTER TABLE pedidos ADD COLUMN visto boolean default false','err');
-          }
-        });
-      }
-    }).catch(function(e){console.warn('PATCH visto error:',e.message);});
+  if(oidx<0)return;
+  orders[oidx].visto=true;
+  saveOrds(orders);
+  // 3. Enviar UPSERT completo del pedido a Supabase con visto=true
+  if(!_sbReady)return;
+  var o=orders[oidx];
+  try{
+    var url=SB_URL+'/rest/v1/pedidos?on_conflict=id';
+    var body={
+      id:o.id,
+      client:o.client,
+      items:o.items,
+      subtotal:o.subtotal,
+      iva_pct:o.ivaPct,
+      iva_nom:o.ivaNom,
+      tax:o.tax,
+      total:o.total,
+      date_str:o.date,
+      visto:true
+    };
+    var r=await sbFetch(url,{
+      method:'POST',
+      headers:Object.assign({'Prefer':'return=minimal,resolution=merge-duplicates'},sbHeaders(true)),
+      body:JSON.stringify([body])
+    },10000);
+    if(r.ok){
+      console.log('Pedido '+id+' marcado visto=true en Supabase OK');
+    } else {
+      var t=await r.text();
+      console.warn('Error marcando visto ('+r.status+'):',t);
+    }
+  }catch(e){
+    console.warn('markOrderSeen SB error:',e.message);
   }
 }
 function markAllOrdersSeen(){
@@ -3297,12 +3307,12 @@ function renderHistory(){
 }
 
 // ─── PDF GENERATOR ───────────────────────────────────────────────────────────
-function verPDFpedido(idx){
+async function verPDFpedido(idx){
   var orders=getOrds();
   var order=orders[idx];
   if(!order){toast('Pedido no encontrado','err');return;}
-  // Marcar como VISTO solo al abrir el PDF
-  markOrderSeen(order.id);
+  // Marcar como VISTO en SB y local
+  await markOrderSeen(order.id);
   // Quitar badge NUEVO de esta tarjeta específica sin re-renderizar todo
   document.querySelectorAll('.ocard').forEach(function(card){
     var oidEl=card.querySelector('.oid');
