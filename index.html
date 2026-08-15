@@ -4586,7 +4586,7 @@ function updateDsctoPreview(){
 }
 
 // ─── PRODUCT MODAL ───────────────────────────────────────────────────────────
-function openProduct(id){
+async function openProduct(id){
   editId=id||null;pendPhoto='';
   document.getElementById('pm-title').textContent=id?'Editar producto':'Nuevo producto';
   ['ref','name','price','stock','min'].forEach(function(f){var el=document.getElementById('f-'+f);if(el)el.value='';});
@@ -4595,19 +4595,36 @@ function openProduct(id){
   var dscPrev=document.getElementById('f-dscto-preview');if(dscPrev)dscPrev.textContent='';
   var pi=document.getElementById('pprev');pi.style.display='none';pi.src='';
   document.getElementById('phint').style.display='block';
-  // Populate selects from config
+
+  // Cargar config fresca desde Supabase para obtener categorías y marcas reales
   var cfg=getCfg();
+  if(_sbReady){
+    try{
+      var sbCfg=await sbGet('configuracion','?id=eq.main');
+      if(sbCfg&&sbCfg.length){
+        cfg=mapCfgFromSB(sbCfg[0],cfg);
+        saveCfg(cfg);
+      }
+    }catch(e){console.warn('openProduct: no se pudo cargar config de SB',e);}
+  }
+
   var cats=cfg.cats||DEF_CATS;
   var brands=cfg.brands||DEF_BRANDS;
   var catSel=document.getElementById('f-cat');
   catSel.innerHTML='<option value="">Seleccionar categoría...</option>'+cats.map(function(v){return '<option value="'+v+'">'+v+'</option>';}).join('');
   var brandSel=document.getElementById('f-brand');
   brandSel.innerHTML='<option value="">Sin marca</option>'+brands.map(function(v){return '<option value="'+v+'">'+v+'</option>';}).join('');
+
   if(id){
     var p=getDB().find(function(x){return x.id===id;});
     if(p){
       ['ref','name','price','stock','min'].forEach(function(f){var el=document.getElementById('f-'+f);if(el)el.value=p[f]||'';});
       catSel.value=p.cat||'';
+      // Si la categoría no está en la lista, agregarla
+      if(p.cat&&!cats.includes(p.cat)){
+        var opt=document.createElement('option');opt.value=p.cat;opt.textContent=p.cat;catSel.appendChild(opt);
+        catSel.value=p.cat;
+      }
       brandSel.value=p.brand||'';
       var ans=document.getElementById('f-allow-nostock');if(ans)ans.checked=!!p.allowNoStock;
       var dscEl2=document.getElementById('f-dscto');if(dscEl2)dscEl2.value=p.dscto||'';
