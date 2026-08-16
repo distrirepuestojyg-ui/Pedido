@@ -525,6 +525,51 @@ button{cursor:pointer;border:none;background:none}
 .home2-bnav-lbl{font-size:9.5px;font-weight:600;color:var(--t3)}
 .home2-bnav-item.active .home2-bnav-ic{opacity:1}
 .home2-bnav-item.active .home2-bnav-lbl{color:var(--or)}
+
+/* ══════════════════════════════════════════════════════════════════════
+   VISTA WEB / ESCRITORIO — solo aplica en pantallas anchas (≥900px).
+   El celular queda exactamente igual a como está arriba.
+   ══════════════════════════════════════════════════════════════════════ */
+@media (min-width:900px){
+  html,body{overflow:auto}
+  body{background:var(--bg);display:flex;justify-content:center}
+
+  /* Centrar la pantalla de inicio y la app como una "ventana" de tienda */
+  #login-screen{height:auto;min-height:100vh;overflow:visible}
+  .home2{max-width:960px}
+  .home2-bnav{display:none} /* la navegación inferior es un patrón móvil; en desktop no se necesita */
+
+  #app{
+    width:100%;max-width:1180px;height:100vh;height:100dvh;
+    margin:0 auto;border-left:1px solid var(--b);border-right:1px solid var(--b);
+    box-shadow:0 0 40px rgba(0,0,0,.35);
+  }
+
+  /* Carrusel más panorámico */
+  .home2-carousel{aspect-ratio:21/7}
+  .home2-slide h2{font-size:26px}
+  .home2-slide p{font-size:14px}
+
+  /* Íconos de acceso rápido: no estirar tanto, centrados */
+  .home2-icons{max-width:520px;margin:0 auto 18px}
+
+  /* Más columnas en los previews e íconos del inicio */
+  .home2-pgrid{grid-template-columns:repeat(4,1fr)}
+
+  /* Catálogo con más columnas y tarjetas más grandes en escritorio */
+  .pgrid{grid-template-columns:repeat(5,1fr);gap:14px;padding:4px 20px 24px}
+  .csearch{padding:14px 20px}
+  .clbl{padding:8px 20px 12px;font-size:16px}
+  .pcn{font-size:13px}
+  .pcadd{cursor:pointer}
+  .pc:hover{border-color:var(--or)}
+
+  /* Barra superior más espaciosa */
+  .topbar{padding:0 20px}
+
+  /* Carrito y otras pantallas: limitar ancho de lectura */
+  .cfooter,.cbody,#cbody{max-width:100%}
+}
 </style>
 </head>
 <body>
