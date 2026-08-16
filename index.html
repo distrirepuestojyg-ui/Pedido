@@ -595,10 +595,6 @@ button{cursor:pointer;border:none;background:none}
       <div class="bp-badge" id="login-banner-empresa">MotoRepuestos</div>
     </div>
   </div>
-  <div class="ll">
-    <h1 id="login-empresa-h1">Moto<span>Repuestos</span></h1>
-    <p id="login-empresa-sub">Catálogo y pedidos en línea</p>
-  </div>
   <!-- MINI PÁGINA DE VENTAS v2 -->
   <div class="home2" id="home2">
     <!-- Carrusel -->
@@ -649,6 +645,7 @@ button{cursor:pointer;border:none;background:none}
     <div class="home2-bnav-item active" onclick="homeGo('inicio')"><span class="home2-bnav-ic">🏠</span><span class="home2-bnav-lbl">Inicio</span></div>
     <div class="home2-bnav-item" onclick="homeGo('buscar')"><span class="home2-bnav-ic">🔎</span><span class="home2-bnav-lbl">Buscar</span></div>
     <div class="home2-bnav-item" onclick="homeGoCart()"><span class="home2-bnav-ic">🛒</span><span class="home2-bnav-lbl">Pedido</span></div>
+    <div class="home2-bnav-item" id="home2-bnav-install" onclick="homeInstallTap()"><span class="home2-bnav-ic">📲</span><span class="home2-bnav-lbl">Instalar</span></div>
   </div>
 
   <!-- Botón activar notificaciones -->
@@ -2029,6 +2026,25 @@ function homeGoCart(){
   role='client';
   boot();
   setTimeout(function(){ goTo('cart'); },50);
+}
+
+// Instalar app desde el ícono de la barra inferior de inicio
+function homeInstallTap(){
+  if(_pwaInstallPrompt){
+    pwaInstall();
+    return;
+  }
+  var isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent);
+  var isStandalone=window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true;
+  if(isStandalone){
+    toast('La app ya está instalada en este dispositivo','ok');
+    return;
+  }
+  if(isIOS){
+    toast('En iPhone/iPad: toca Compartir → "Agregar a pantalla de inicio"','ok');
+  } else {
+    toast('Desde el menú del navegador (⋮) elige "Instalar app" o "Agregar a pantalla de inicio"','ok');
+  }
 }
 
 function homeGo(mode){
