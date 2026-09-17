@@ -968,6 +968,7 @@ button{cursor:pointer;border:none;background:none}
       <img id="pprev" class="prev">
       <div id="phint" class="pzone-hint">📷 Toca para subir foto del producto</div>
     </div>
+    <button type="button" id="pphoto-remove-btn" onclick="removeProdPhoto(event)" style="display:none;width:100%;margin:-8px 0 14px;padding:8px;border-radius:9px;border:1px solid var(--rd);background:var(--rdd);color:var(--rd);font-size:12px;font-weight:600;cursor:pointer">✕ Quitar foto</button>
     
         <!-- Notificaciones push -->
         <div style="background:var(--bg3);border-radius:12px;padding:14px;margin-bottom:14px">
@@ -5054,6 +5055,7 @@ async function openProduct(id){
   var dscPrev=document.getElementById('f-dscto-preview');if(dscPrev)dscPrev.textContent='';
   var pi=document.getElementById('pprev');pi.style.display='none';pi.src='';
   document.getElementById('phint').style.display='block';
+  var rmBtn0=document.getElementById('pphoto-remove-btn'); if(rmBtn0)rmBtn0.style.display='none';
 
   // Cargar config fresca desde Supabase para obtener categorías y marcas reales
   var cfg=getCfg();
@@ -5097,7 +5099,19 @@ function handlePhoto(inp){
   const f=inp.files[0];if(!f)return;
   const r=new FileReader();r.onload=e=>{pendPhoto=e.target.result;setPhoto(e.target.result);};r.readAsDataURL(f);
 }
-function setPhoto(src){const pi=document.getElementById('pprev');pi.src=src;pi.style.display='block';document.getElementById('phint').style.display='none';}
+function setPhoto(src){
+  const pi=document.getElementById('pprev');pi.src=src;pi.style.display='block';
+  document.getElementById('phint').style.display='none';
+  var rmBtn=document.getElementById('pphoto-remove-btn'); if(rmBtn)rmBtn.style.display=src?'block':'none';
+}
+function removeProdPhoto(e){
+  if(e){e.preventDefault();e.stopPropagation();}
+  pendPhoto='';
+  var pi=document.getElementById('pprev'); if(pi){pi.src='';pi.style.display='none';}
+  var hint=document.getElementById('phint'); if(hint)hint.style.display='block';
+  var rmBtn=document.getElementById('pphoto-remove-btn'); if(rmBtn)rmBtn.style.display='none';
+  var fileInp=document.querySelector('.pzone input[type=file]'); if(fileInp)fileInp.value='';
+}
 function saveProduct(){
   var ref=document.getElementById('f-ref').value.trim();
   var name=document.getElementById('f-name').value.trim();
