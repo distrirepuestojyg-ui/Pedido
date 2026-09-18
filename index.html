@@ -274,6 +274,10 @@ button{cursor:pointer;border:none;background:none}
 
 /* ── INVENTORY ── */
 .iacts{display:flex;gap:8px;padding:10px 12px 0;flex-shrink:0;flex-wrap:wrap}
+.screen-tabs{display:flex;gap:6px;padding:10px 12px 0;flex-shrink:0}
+.screen-tab{flex:1;text-align:center;padding:10px 8px;font-size:12.5px;font-weight:600;color:var(--t3);background:var(--bg2);border:1px solid var(--b);border-radius:10px;cursor:pointer;transition:all .12s}
+.screen-tab.active{background:var(--or);border-color:var(--or);color:#fff}
+.screen-tab:active{opacity:.85}
 .screen-panel{display:none;flex-direction:column;flex:1;min-height:0;overflow:hidden}
 .screen-panel.active{display:flex}
 .isearch{padding:8px 12px 0;flex-shrink:0}
