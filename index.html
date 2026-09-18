@@ -274,6 +274,8 @@ button{cursor:pointer;border:none;background:none}
 
 /* ── INVENTORY ── */
 .iacts{display:flex;gap:8px;padding:10px 12px 0;flex-shrink:0;flex-wrap:wrap}
+.screen-panel{display:none;flex-direction:column;flex:1;min-height:0;overflow:hidden}
+.screen-panel.active{display:flex}
 .isearch{padding:8px 12px 0;flex-shrink:0}
 .isearch-inp{width:100%;background:var(--bg3);border:1px solid var(--b2);border-radius:10px;padding:10px 12px 10px 36px;color:var(--t);font-size:14px;position:relative}
 .isearch-inp:focus{outline:none;border-color:var(--or)}
@@ -533,7 +535,6 @@ button{cursor:pointer;border:none;background:none}
    El celular queda exactamente igual a como está arriba.
    ══════════════════════════════════════════════════════════════════════ */
 @media (min-width:900px){
-  html,body{overflow:auto}
   body{background:var(--bg);display:flex;justify-content:center}
 
   /* Centrar la pantalla de inicio y la app como una "ventana" de tienda */
