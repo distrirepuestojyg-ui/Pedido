@@ -1,83 +1,72 @@
-// ─── SERVICE WORKER — DistriRepuesto JYG ─────────────────────────────────────
-const CACHE_NAME = 'distrij-v1';
-const OFFLINE_URL = '/Pedido/';
+// Service Worker de DistriRepuesto JYG
+// Necesario para que el navegador considere la app "instalable" (PWA)
 
-// Archivos a cachear para funcionamiento offline
-const PRECACHE = [
-  '/Pedido/',
-  '/Pedido/index.html',
-  'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'
+const CACHE_NAME = 'distrijyg-v1';
+const ASSETS = [
+  './index.html',
+  './manifest.json'
 ];
 
-// ── INSTALL: pre-cachear recursos esenciales ──────────────────────────────────
-self.addEventListener('install', function(event) {
+// Instalación: guarda en caché los archivos básicos
+self.addEventListener('install', function (event) {
+  self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_NAME).then(function(cache) {
-      // Cachear la app principal (ignora errores en recursos externos)
-      return cache.addAll(PRECACHE).catch(function(e) {
-        console.log('SW: algunos recursos no se pudieron cachear', e);
+    caches.open(CACHE_NAME).then(function (cache) {
+      return cache.addAll(ASSETS).catch(function () {
+        // Si algún archivo falla, no bloquea la instalación
       });
-    }).then(function() {
-      // Activar inmediatamente sin esperar cierre de pestañas anteriores
-      return self.skipWaiting();
     })
   );
 });
 
-// ── ACTIVATE: limpiar caches viejos ──────────────────────────────────────────
-self.addEventListener('activate', function(event) {
+// Activación: limpia cachés viejos de versiones anteriores
+self.addEventListener('activate', function (event) {
   event.waitUntil(
-    caches.keys().then(function(keys) {
+    caches.keys().then(function (keys) {
       return Promise.all(
-        keys.filter(function(k) { return k !== CACHE_NAME; })
-            .map(function(k) { return caches.delete(k); })
+        keys.filter(function (k) { return k !== CACHE_NAME; })
+            .map(function (k) { return caches.delete(k); })
       );
-    }).then(function() {
-      // Controlar todas las pestañas abiertas inmediatamente
-      return self.clients.claim();
     })
   );
+  self.clients.claim();
 });
 
-// ── FETCH: Network first, cache fallback ─────────────────────────────────────
-self.addEventListener('fetch', function(event) {
-  var req = event.request;
-
-  // Solo interceptar GET
-  if (req.method !== 'GET') return;
-
-  // Supabase API — siempre network, nunca caché (datos en tiempo real)
-  if (req.url.includes('supabase.co')) return;
-
-  // Para la app principal: network first, cache fallback
+// Estrategia: intenta red primero, si falla usa caché (para que funcione offline básico)
+self.addEventListener('fetch', function (event) {
+  if (event.request.method !== 'GET') return;
   event.respondWith(
-    fetch(req).then(function(response) {
-      // Si la red respondió bien, actualizar caché
-      if (response && response.status === 200) {
-        var clone = response.clone();
-        caches.open(CACHE_NAME).then(function(cache) {
-          cache.put(req, clone);
+    fetch(event.request)
+      .then(function (res) {
+        var resClone = res.clone();
+        caches.open(CACHE_NAME).then(function (cache) {
+          cache.put(event.request, resClone);
         });
-      }
-      return response;
-    }).catch(function() {
-      // Sin red: servir desde caché
-      return caches.match(req).then(function(cached) {
-        if (cached) return cached;
-        // Última opción: la página principal
-        return caches.match(OFFLINE_URL);
-      });
-    })
+        return res;
+      })
+      .catch(function () {
+        return caches.match(event.request);
+      })
   );
 });
 
-// ── PUSH NOTIFICATIONS (preparado para futuro) ───────────────────────────────
-self.addEventListener('push', function(event) {
-  if (!event.data) return;
-  var data = event.data.json();
-  self.registration.showNotification(data.title || 'DistriRepuesto JYG', {
-    body: data.body || '',
-    icon: '/Pedido/icons/icon-192.png',
-    badge: '/Pedido/icons/icon-72.png'
-  });
+// ── Notificaciones push ──────────────────────────────────────────────────
+self.addEventListener('push', function (event) {
+  var data = {};
+  try { data = event.data ? event.data.json() : {}; } catch (e) {}
+  var title = data.title || 'DistriRepuesto JYG';
+  var options = {
+    body: data.body || 'Tienes una nueva notificación',
+    icon: 'icons/icon-192.png',
+    badge: 'icons/icon-128.png',
+    data: data.url || './index.html'
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', function (event) {
+  event.notification.close();
+  event.waitUntil(
+    clients.openWindow(event.notification.data || './index.html')
+  );
 });
