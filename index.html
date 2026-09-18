@@ -756,10 +756,10 @@ button{cursor:pointer;border:none;background:none}
       <div class="isearch">
         <div class="isearch-wrap">
           <span class="isearch-ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
-          <input class="isearch-inp" type="search" id="sel-search" placeholder="Buscar vendedor..." oninput="renderSellers()">
+          <input class="isearch-inp" type="search" id="sel-search" placeholder="Buscar vendedor..." oninput="PAG_SEL=1;renderSellers()">
         </div>
       </div>
-      <div class="scr" style="flex:1"><div id="sellers-list" style="padding:0 12px 16px"></div></div>
+      <div class="scr" style="flex:1"><div id="sellers-list" style="padding:0 12px 16px"></div><div class="pag-wrap" id="sel-pag" style="display:none"></div></div>
     </div>
   </div>
 
@@ -1951,8 +1951,8 @@ async function syncFromSupabase(){
     sbGetAll('productos','?order=id.asc'),
     sbGet('pedidos','?order=created_at.desc'),
     sbGet('configuracion','?id=eq.main'),
-    sbGet('clientes','?order=name.asc'),
-    sbGet('vendedores','?order=name.asc')
+    sbGetAll('clientes','?order=name.asc'),
+    sbGetAll('vendedores','?order=name.asc')
   ]);
   var ok=0;
   // Productos
@@ -2751,10 +2751,10 @@ async function bgSync(table){
       r=await sbGet('configuracion','?id=eq.main');
       if(r&&r.length){_memSet(CFG_K,mapCfgFromSB(r[0],getCfg()));return true;}
     } else if(table==='clientes'){
-      r=await sbGet('clientes','?order=name.asc');
+      r=await sbGetAll('clientes','?order=name.asc');
       if(r){_memSet(CLI_K,r);return true;}
     } else if(table==='vendedores'){
-      r=await sbGet('vendedores','?order=name.asc');
+      r=await sbGetAll('vendedores','?order=name.asc');
       if(r){_memSet(SEL_K,r);return true;}
     }
   }catch(e){console.warn('bgSync ('+table+'):',e.message);}
@@ -3775,6 +3775,8 @@ var CLI_K='mrp_cli3';
 var _selectedClient=null;
 var PAG_CLI=1;
 var PER_PAGE_CLI=10;
+var PAG_SEL=1;
+var PER_PAGE_SEL=10;
 var _editClientId=null;
 
 function getClients(){return _memGet(CLI_K)||[];}
@@ -3972,7 +3974,7 @@ function saveSellers(d){_memSet(SEL_K,d);}
 
 async function getSellersAsync(){
   if(_sbReady){
-    var r=await sbGet('vendedores','?order=name.asc');
+    var r=await sbGetAll('vendedores','?order=name.asc');
     if(r){localStorage.setItem(SEL_K,JSON.stringify(r));return r;}
   }
   return getSellers();
@@ -4061,11 +4063,13 @@ function renderSellers(){
   var container=document.getElementById('sellers-list');
   if(!list.length){
     container.innerHTML='<div style="color:var(--t3);font-size:13px;text-align:center;padding:32px">'+(q?'Sin resultados':'Sin vendedores registrados')+'</div>';
-    return;
+    renderPag('sel-pag',1,1,function(){});return;
   }
+  var total=Math.max(1,Math.ceil(list.length/PER_PAGE_SEL));
+  if(PAG_SEL>total)PAG_SEL=1;
+  var page=list.slice((PAG_SEL-1)*PER_PAGE_SEL,PAG_SEL*PER_PAGE_SEL);
   container.innerHTML='';
-    container.innerHTML='';
-  list.forEach(function(s){
+  page.forEach(function(s){
     var ini=(s.name||'?')[0].toUpperCase();
     var row=document.createElement('div');row.className='irow';
     var thumb=document.createElement('div');
@@ -4086,6 +4090,7 @@ function renderSellers(){
     row.appendChild(thumb);row.appendChild(mid);row.appendChild(right);
     container.appendChild(row);
   });
+  renderPag('sel-pag',PAG_SEL,total,function(pg){PAG_SEL=pg;renderSellers();});
 }
 
 // ── SWITCHER DE TABS ──────────────────────────────────────────────────────────
