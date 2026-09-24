@@ -1910,7 +1910,16 @@ function _memSet(key, val){
   else if(key===CFG_K) _MEM.cfg=val;
   else if(key===CLI_K) _MEM.cli=val;
   else if(key===SEL_K) _MEM.sel=val;
-  try{localStorage.setItem(key,JSON.stringify(val));}catch(e){}
+  try{
+    localStorage.setItem(key,JSON.stringify(val));
+    return true;
+  }catch(e){
+    console.warn('_memSet('+key+'): fallo al guardar localmente —', e.message);
+    if(typeof toast==='function'){
+      toast('⚠️ El navegador se quedó sin espacio para guardar todo localmente. Ve a Ajustes → Sistema → "Optimizar espacio" para liberar espacio (fotos sin comprimir).','err');
+    }
+    return false;
+  }
 }
 
 function _memRemove(key){
@@ -2007,7 +2016,7 @@ async function syncFromSupabase(){
   var productsOk=false;
   if(results[0].status==='fulfilled'&&results[0].value!==null){
     productsOk=true;
-    if(results[0].value.length){_memSet(DBK,results[0].value.map(mapProd));ok++;}
+    if(results[0].value.length){ if(saveDB(results[0].value.map(mapProd)))ok++; }
   }
   // Pedidos
   if(results[1].status==='fulfilled'&&results[1].value){
@@ -2053,7 +2062,18 @@ const SEED=[
 ];
 
 function getDB(){const r=localStorage.getItem(DBK);return r?JSON.parse(r):(saveDB(SEED),SEED);}
-function saveDB(d){localStorage.setItem(DBK,JSON.stringify(d));}
+function saveDB(d){
+  try{
+    localStorage.setItem(DBK,JSON.stringify(d));
+    return true;
+  }catch(e){
+    console.warn('saveDB: fallo al guardar el inventario localmente —',e.message);
+    if(typeof toast==='function'){
+      toast('⚠️ El navegador se quedó sin espacio para guardar todo el inventario. Ve a Ajustes → Sistema → "Optimizar espacio" para liberar espacio.','err');
+    }
+    return false;
+  }
+}
 // getOrds/saveOrds defined above
 function getCfg(){
   const r=localStorage.getItem(CFG_K);
@@ -2795,7 +2815,7 @@ async function bgSync(table){
     var r;
     if(table==='productos'){
       r=await sbGetAll('productos','?order=id.asc');
-      if(r&&r.length){_memSet(DBK,r.map(mapProd));return true;}
+      if(r&&r.length){return saveDB(r.map(mapProd));}
     } else if(table==='pedidos'){
       r=await sbGet('pedidos','?order=created_at.desc');
       if(r){
@@ -4477,9 +4497,18 @@ async function forzarSincroInventario(){
     return;
   }
 
-  _memSet(DBK,r.map(mapProd));
-  var after=r.length;
+  var mapped=r.map(mapProd);
+  var saved=saveDB(mapped); // saveDB ahora avisa si el navegador se queda sin espacio
+  var after=getDB().length; // se lee de nuevo lo que REALMENTE quedó guardado
   renderInventory();
+
+  if(!saved || after!==mapped.length){
+    status.innerHTML='⚠️ El servidor tiene <strong>'+mapped.length+'</strong> productos, pero tu navegador solo pudo guardar <strong style="color:var(--rd)">'+after+'</strong> localmente — se quedó sin espacio de almacenamiento. Ve a Ajustes → Sistema → "Optimizar espacio" para liberar espacio (fotos sin comprimir) y vuelve a intentar.';
+    status.style.color='var(--rd)';
+    toast('Espacio local insuficiente — usa "Optimizar espacio" en Ajustes','err');
+    return;
+  }
+
   if(after===before){
     status.innerHTML='✅ Verificado: <strong style="color:var(--t)">'+after+'</strong> productos — coincide con el servidor.';
   } else {
