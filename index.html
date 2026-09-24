@@ -4498,6 +4498,17 @@ async function forzarSincroInventario(){
   }
 
   var mapped=r.map(mapProd);
+
+  // Antes de guardar: sanear cualquier foto pesada que venga en el listado
+  // (ej. productos nuevos subidos directo a Supabase sin comprimir)
+  status.textContent='Revisando fotos pesadas antes de guardar...';
+  var fixedPhotos=await saneaFotosPesadasEnListado(mapped,function(i,total,label){
+    status.textContent='Optimizando foto pesada '+i+'/'+total+': '+label;
+  });
+  if(fixedPhotos>0){
+    toast(fixedPhotos+' foto'+(fixedPhotos!==1?'s':'')+' pesada'+(fixedPhotos!==1?'s':'')+' se optimizó'+(fixedPhotos!==1?'ron':'')+' automáticamente','ok');
+  }
+
   var saved=saveDB(mapped); // saveDB ahora avisa si el navegador se queda sin espacio
   var after=getDB().length; // se lee de nuevo lo que REALMENTE quedó guardado
   renderInventory();
@@ -5290,6 +5301,49 @@ function dataURLtoBlob(dataurl){
   return new Blob([u8],{type:mime});
 }
 function _estimateB64KB(str){ return Math.round((str.length*3/4)/1024); }
+
+function blobToDataURL(blob){
+  return new Promise(function(resolve,reject){
+    var r=new FileReader();
+    r.onload=function(e){resolve(e.target.result);};
+    r.onerror=reject;
+    r.readAsDataURL(blob);
+  });
+}
+
+// Revisa un listado de productos recién bajado del servidor y comprime/migra
+// automáticamente cualquier foto pesada (base64 sin optimizar) ANTES de
+// guardarlo localmente — esto evita que un producto importado o subido
+// directo a Supabase (sin pasar por la app) reviente el límite de espacio
+// del navegador al sincronizar.
+async function saneaFotosPesadasEnListado(mapped,onProgress){
+  var THRESH_KB=200;
+  var fixed=0;
+  for(var i=0;i<mapped.length;i++){
+    var p=mapped[i];
+    if(p.photo && typeof p.photo==='string' && p.photo.indexOf('data:image')===0){
+      var kb=_estimateB64KB(p.photo);
+      if(kb>THRESH_KB){
+        if(onProgress)onProgress(i+1,mapped.length,p.ref||p.name);
+        try{
+          var blob=dataURLtoBlob(p.photo);
+          var compressed=await compressImage(blob,800,0.72);
+          var url=null;
+          if(_sbReady){
+            var file=new File([compressed],'img.jpg',{type:'image/jpeg'});
+            url=await uploadPhotoToStorage(file,'productos/'+p.id+'_'+Date.now());
+            if(url){
+              await sbUpsert('productos',{id:p.id,ref:p.ref,name:p.name,cat:p.cat,price:p.price,stock:p.stock,min_stock:p.min||0,brand:p.brand||null,photo:url,allow_nostock:!!p.allowNoStock},'id');
+            }
+          }
+          p.photo = url || await blobToDataURL(compressed); // si no hay Storage, al menos queda comprimida
+          fixed++;
+        }catch(e){ console.warn('No se pudo optimizar foto de '+(p.ref||p.name)+':',e.message); }
+      }
+    }
+  }
+  return fixed;
+}
 
 function scanHeavyPhotos(){
   var db=getDB();
