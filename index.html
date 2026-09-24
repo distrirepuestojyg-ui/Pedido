@@ -1789,7 +1789,8 @@ async function sbGetAll(table,query,pageSize){
   for(var page=0;page<maxPages;page++){
     var rangeEnd=from+pageSize-1;
     var rows=null;
-    for(var attempt=0;attempt<3;attempt++){
+    var pageFailed=false;
+    for(var attempt=0;attempt<4;attempt++){
       try{
         var r=await sbFetch(sbUrl(table,query),{
           headers:{
@@ -1799,20 +1800,28 @@ async function sbGetAll(table,query,pageSize){
             'Range':from+'-'+rangeEnd,
             'Prefer':'count=none'
           }
-        },15000);
+        },25000);
         if(r.ok){rows=await r.json();break;}
         if(r.status===416){rows=[];break;} // rango fuera de límite = ya no hay más
       }catch(e){
-        if(attempt===2)console.warn('SB GetAll fallo pag '+page+':',e.message);
-        else await new Promise(function(res){setTimeout(res,1500);});
+        if(attempt===3){pageFailed=true;console.warn('SB GetAll fallo definitivo pag '+page+':',e.message);}
+        else await new Promise(function(res){setTimeout(res,1200*(attempt+1));});
       }
+    }
+    // ── CLAVE: si una página falló de verdad (no es que ya no había más datos),
+    // abortamos TODO y devolvemos null en vez de un listado parcial. Guardar un
+    // listado incompleto como si fuera el completo es lo que causaba que cada
+    // dispositivo terminara mostrando una cantidad distinta de productos.
+    if(pageFailed){
+      console.warn('SB GetAll ('+table+'): conexión inestable — se aborta la sincronización para no sobrescribir los datos locales con un listado incompleto');
+      return null;
     }
     if(!rows||!rows.length)break;
     allRows=allRows.concat(rows);
     if(rows.length<pageSize)break; // última página
     from+=pageSize;
   }
-  console.log('SB GetAll ('+table+'): '+allRows.length+' registros en '+(page+1)+' páginas');
+  console.log('SB GetAll ('+table+'): '+allRows.length+' registros');
   return allRows;
 }
 
