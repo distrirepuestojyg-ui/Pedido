@@ -5316,18 +5316,50 @@ function scanHeavyPhotos(){
   return items;
 }
 
+function _localStorageKeyKB(key){
+  try{
+    var v=localStorage.getItem(key);
+    return v?Math.round((v.length*2)/1024):0; // aprox: JS usa UTF-16, ~2 bytes/carácter
+  }catch(e){ return 0; }
+}
+function diagnosticarEspacioLocal(){
+  var rows=[
+    {label:'Inventario de productos',key:DBK},
+    {label:'Historial de pedidos',key:ORK},
+    {label:'Clientes',key:CLI_K},
+    {label:'Vendedores',key:SEL_K},
+    {label:'Configuración (logo/banners)',key:CFG_K}
+  ];
+  var total=0;
+  var lines=rows.map(function(r){
+    var kb=_localStorageKeyKB(r.key);
+    total+=kb;
+    return {label:r.label,kb:kb};
+  }).sort(function(a,b){return b.kb-a.kb;});
+  return {lines:lines,total:total};
+}
+
 function previewCleanup(){
   var box=document.getElementById('cleanup-preview');
   if(!box)return;
   var items=scanHeavyPhotos();
+  var diag=diagnosticarEspacioLocal();
+  var diagHtml='<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--b)">'+
+    '<div style="font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">📊 Qué está ocupando el espacio de tu navegador (aprox. '+(diag.total/1024).toFixed(2)+' MB en total)</div>'+
+    diag.lines.map(function(l){
+      return '<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--t2);padding:3px 0"><span>'+l.label+'</span><strong style="color:'+(l.kb>2000?'var(--rd)':'var(--t)')+'">'+(l.kb>1024?(l.kb/1024).toFixed(2)+' MB':l.kb+' KB')+'</strong></div>';
+    }).join('')+
+    '<div style="font-size:11px;color:var(--t3);margin-top:8px;line-height:1.5">La mayoría de navegadores permiten entre 5 y 10 MB por sitio. Si "Historial de pedidos" es lo más pesado, usa la sección de abajo ("Limpiar datos por rango de fecha") para archivar pedidos antiguos y liberar espacio.</div>'+
+  '</div>';
+
   if(!items.length){
-    box.innerHTML='✅ No hay fotos pesadas pendientes — todo está optimizado.';
+    box.innerHTML='✅ No hay fotos pesadas pendientes — todo está optimizado.'+diagHtml;
     var btn=document.getElementById('cleanup-btn'); if(btn)btn.disabled=true;
     return;
   }
   var totalKB=items.reduce(function(a,b){return a+b.kb;},0);
   var totalMB=(totalKB/1024).toFixed(1);
-  box.innerHTML='📦 Se encontraron <strong style="color:var(--t)">'+items.length+' foto'+(items.length!==1?'s':'')+'</strong> sin optimizar, ocupando aprox. <strong style="color:var(--or2)">'+totalMB+' MB</strong> en tu base de datos.'+(_sbReady?'':'<br><span style="color:var(--rd)">⚠️ Necesitas Supabase conectado para migrarlas a Storage.</span>');
+  box.innerHTML='📦 Se encontraron <strong style="color:var(--t)">'+items.length+' foto'+(items.length!==1?'s':'')+'</strong> sin optimizar, ocupando aprox. <strong style="color:var(--or2)">'+totalMB+' MB</strong> en tu base de datos.'+(_sbReady?'':'<br><span style="color:var(--rd)">⚠️ Necesitas Supabase conectado para migrarlas a Storage.</span>')+diagHtml;
   var btn=document.getElementById('cleanup-btn'); if(btn)btn.disabled=false;
 }
 
