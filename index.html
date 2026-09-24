@@ -918,6 +918,18 @@ button{cursor:pointer;border:none;background:none}
             </div>
           </div>
           <div class="cfg-section">
+            <div class="cfg-title">🧹 Optimizar espacio de la base de datos</div>
+            <p style="font-size:12px;color:var(--t2);margin-bottom:12px;line-height:1.6">Busca fotos de productos, logo y banners guardadas "pesadas" (sin comprimir, directo en la base de datos) y las comprime + sube a Supabase Storage automáticamente. Esto libera espacio de tu cupo sin que tengas que resubir nada manualmente.</p>
+            <div id="cleanup-preview" style="font-size:12px;color:var(--t2);margin-bottom:10px"></div>
+            <div class="cleanup-progress-wrap" id="cleanup-progress-wrap" style="display:none;margin-bottom:10px">
+              <div style="height:8px;background:var(--bg3);border-radius:99px;overflow:hidden">
+                <div id="cleanup-progress-bar" style="height:100%;width:0%;background:var(--or);transition:width .2s"></div>
+              </div>
+              <div id="cleanup-progress-txt" style="font-size:11px;color:var(--t3);margin-top:6px;text-align:center"></div>
+            </div>
+            <button class="cfg-save" id="cleanup-btn" onclick="ejecutarOptimizacion()" style="margin-top:0">🧹 Buscar y optimizar fotos pesadas</button>
+          </div>
+          <div class="cfg-section">
             <div class="cfg-title">🗑️ Limpiar datos por rango de fecha</div>
             <p style="font-size:12px;color:var(--t2);margin-bottom:12px;line-height:1.6">Elimina pedidos en el rango seleccionado. El inventario <strong style="color:var(--t)">no se elimina</strong>.</p>
             <div class="del-range-row">
@@ -1360,7 +1372,7 @@ function setCfgTab(idx){
   document.querySelectorAll('.cfg-page').forEach(function(p,i){p.classList.toggle('active',i===idx);});
   if(idx===1){renderBannersManager();}
   // Load fondo grid when tab 3 opens
-  if(idx===3){var cfg=getCfg();buildFondoGrid(cfg.bgTheme||'dark');var inp=document.getElementById('cfg-bg-custom');if(inp)inp.value=(BG_THEMES[cfg.bgTheme||'dark']||BG_THEMES.dark).bg;}
+  if(idx===3){var cfg=getCfg();buildFondoGrid(cfg.bgTheme||'dark');var inp=document.getElementById('cfg-bg-custom');if(inp)inp.value=(BG_THEMES[cfg.bgTheme||'dark']||BG_THEMES.dark).bg;previewCleanup();}
   // Load SB status when tab 4 opens
   if(idx===4){loadUsers();}
   if(idx===5){loadSBConfig();}
@@ -1378,12 +1390,17 @@ async function handleBannerImg(inp){
     updateLoginBanner(e.target.result);
   };
   reader.readAsDataURL(f);
+  var fileToSend=f;
+  try{
+    var blobC=await compressImage(f,1000,0.75);
+    fileToSend=new File([blobC],'banner.jpg',{type:'image/jpeg'});
+  }catch(ce){ console.warn('No se pudo comprimir el banner:',ce.message); }
   // Subir a Supabase Storage si está disponible
   if(_sbReady){
     var btn=document.getElementById('banner-remove-btn');
     var hint=document.getElementById('banner-hint');
     if(hint)hint.textContent='Subiendo imagen...';
-    var url=await uploadBannerToStorage(f);
+    var url=await uploadBannerToStorage(fileToSend);
     if(url){
       _pendingBanner=url; // guardar URL, no base64
       showBannerPreview(url);
@@ -1394,7 +1411,7 @@ async function handleBannerImg(inp){
       // Fallback: guardar base64 si Storage falla
       var r2=new FileReader();
       r2.onload=function(e2){_pendingBanner=e2.target.result;};
-      r2.readAsDataURL(f);
+      r2.readAsDataURL(fileToSend);
       toast('Storage no disponible — guardando localmente','err');
     }
   } else {
@@ -1545,13 +1562,25 @@ async function handleBannerSlideImg(i,inp){
     if(hint)hint.style.display='none';
   };
   reader.readAsDataURL(f);
+  var fileToSend=f;
+  try{
+    var blobC=await compressImage(f,1000,0.75);
+    fileToSend=new File([blobC],'banner.jpg',{type:'image/jpeg'});
+  }catch(ce){ console.warn('No se pudo comprimir el banner:',ce.message); }
   if(_sbReady){
-    var url=await uploadBannerToStorage(f);
+    var url=await uploadBannerToStorage(fileToSend);
     if(url&&_pendingBanners[i]){
       _pendingBanners[i].img=url;
       var img2=document.getElementById('ban-img-'+i);
       if(img2)img2.src=url;
     }
+  } else {
+    // Sin Supabase: guardar el base64 ya comprimido en vez del original
+    var r2=new FileReader();
+    r2.onload=function(e2){
+      if(_pendingBanners[i])_pendingBanners[i].img=e2.target.result;
+    };
+    r2.readAsDataURL(fileToSend);
   }
 }
 function updateLoginBanner(data){
@@ -4904,8 +4933,13 @@ async function handleLogo(inp){
   var r=new FileReader();
   r.onload=function(e){showLogoPreview(e.target.result);applyLogo(e.target.result);};
   r.readAsDataURL(f);
+  var fileToSend=f;
+  try{
+    var blobC=await compressImage(f,500,0.8); // el logo no necesita ser grande
+    fileToSend=new File([blobC],'logo.jpg',{type:'image/jpeg'});
+  }catch(ce){ console.warn('No se pudo comprimir el logo:',ce.message); }
   if(_sbReady){
-    var url=await uploadLogoToStorage(f);
+    var url=await uploadLogoToStorage(fileToSend);
     if(url){
       _pendingLogo=url;
       showLogoPreview(url);applyLogo(url);
@@ -4913,12 +4947,12 @@ async function handleLogo(inp){
     } else {
       var r2=new FileReader();
       r2.onload=function(e2){_pendingLogo=e2.target.result;};
-      r2.readAsDataURL(f);
+      r2.readAsDataURL(fileToSend);
     }
   } else {
     var r3=new FileReader();
     r3.onload=function(e3){_pendingLogo=e3.target.result;showLogoPreview(e3.target.result);applyLogo(e3.target.result);};
-    r3.readAsDataURL(f);
+    r3.readAsDataURL(fileToSend);
   }
 }
 function removeLogo(){
@@ -5119,7 +5153,175 @@ async function openProduct(id){
 }
 function handlePhoto(inp){
   const f=inp.files[0];if(!f)return;
-  const r=new FileReader();r.onload=e=>{pendPhoto=e.target.result;setPhoto(e.target.result);};r.readAsDataURL(f);
+  handlePhotoCompressed(f);
+}
+
+// Comprime cualquier imagen (redimensiona + calidad JPEG) antes de guardarla —
+// esto reduce el peso de cada foto entre 80% y 95% sin verse mal, clave cuando
+// hay un límite de espacio en la base de datos (ej. 500MB en Supabase).
+function compressImage(file,maxDim,quality){
+  return new Promise(function(resolve,reject){
+    var url=URL.createObjectURL(file);
+    var img=new Image();
+    img.onload=function(){
+      URL.revokeObjectURL(url);
+      var w=img.width,h=img.height;
+      if(w>h){ if(w>maxDim){h=Math.round(h*maxDim/w);w=maxDim;} }
+      else { if(h>maxDim){w=Math.round(w*maxDim/h);h=maxDim;} }
+      var canvas=document.createElement('canvas');
+      canvas.width=w;canvas.height=h;
+      var ctx=canvas.getContext('2d');
+      ctx.drawImage(img,0,0,w,h);
+      canvas.toBlob(function(blob){
+        if(blob)resolve(blob); else reject(new Error('No se pudo comprimir la imagen'));
+      },'image/jpeg',quality);
+    };
+    img.onerror=function(){URL.revokeObjectURL(url);reject(new Error('Imagen inválida'));};
+    img.src=url;
+  });
+}
+
+// ─── OPTIMIZADOR DE ESPACIO — comprime y migra fotos base64 viejas a Storage ──
+function dataURLtoBlob(dataurl){
+  var arr=dataurl.split(',');
+  var mimeMatch=arr[0].match(/:(.*?);/);
+  var mime=mimeMatch?mimeMatch[1]:'image/jpeg';
+  var bstr=atob(arr[1]);
+  var n=bstr.length;
+  var u8=new Uint8Array(n);
+  while(n--){ u8[n]=bstr.charCodeAt(n); }
+  return new Blob([u8],{type:mime});
+}
+function _estimateB64KB(str){ return Math.round((str.length*3/4)/1024); }
+
+function scanHeavyPhotos(){
+  var db=getDB();
+  var cfg=getCfg();
+  var items=[];
+  db.forEach(function(p){
+    if(p.photo && typeof p.photo==='string' && p.photo.indexOf('data:image')===0){
+      items.push({type:'product',id:p.id,label:p.ref||p.name||('#'+p.id),data:p.photo,kb:_estimateB64KB(p.photo)});
+    }
+  });
+  if(cfg.logo && typeof cfg.logo==='string' && cfg.logo.indexOf('data:image')===0){
+    items.push({type:'logo',label:'Logo de la empresa',data:cfg.logo,kb:_estimateB64KB(cfg.logo)});
+  }
+  if(cfg.bannerImg && typeof cfg.bannerImg==='string' && cfg.bannerImg.indexOf('data:image')===0){
+    items.push({type:'banner',label:'Banner (legado)',data:cfg.bannerImg,kb:_estimateB64KB(cfg.bannerImg)});
+  }
+  if(cfg.homeBanners && cfg.homeBanners.length){
+    cfg.homeBanners.forEach(function(b,i){
+      if(b.img && typeof b.img==='string' && b.img.indexOf('data:image')===0){
+        items.push({type:'homeBanner',idx:i,label:'Banner de inicio #'+(i+1),data:b.img,kb:_estimateB64KB(b.img)});
+      }
+    });
+  }
+  return items;
+}
+
+function previewCleanup(){
+  var box=document.getElementById('cleanup-preview');
+  if(!box)return;
+  var items=scanHeavyPhotos();
+  if(!items.length){
+    box.innerHTML='✅ No hay fotos pesadas pendientes — todo está optimizado.';
+    var btn=document.getElementById('cleanup-btn'); if(btn)btn.disabled=true;
+    return;
+  }
+  var totalKB=items.reduce(function(a,b){return a+b.kb;},0);
+  var totalMB=(totalKB/1024).toFixed(1);
+  box.innerHTML='📦 Se encontraron <strong style="color:var(--t)">'+items.length+' foto'+(items.length!==1?'s':'')+'</strong> sin optimizar, ocupando aprox. <strong style="color:var(--or2)">'+totalMB+' MB</strong> en tu base de datos.'+(_sbReady?'':'<br><span style="color:var(--rd)">⚠️ Necesitas Supabase conectado para migrarlas a Storage.</span>');
+  var btn=document.getElementById('cleanup-btn'); if(btn)btn.disabled=false;
+}
+
+async function ejecutarOptimizacion(){
+  var items=scanHeavyPhotos();
+  if(!items.length){toast('No hay fotos pendientes por optimizar','ok');return;}
+  if(!_sbReady){toast('Conecta Supabase primero para poder migrar las fotos','err');return;}
+
+  var btn=document.getElementById('cleanup-btn');
+  var wrap=document.getElementById('cleanup-progress-wrap');
+  var bar=document.getElementById('cleanup-progress-bar');
+  var txt=document.getElementById('cleanup-progress-txt');
+  btn.disabled=true;
+  wrap.style.display='block';
+
+  var db=getDB();
+  var cfg=getCfg();
+  var done=0,failed=0;
+
+  for(var i=0;i<items.length;i++){
+    var it=items[i];
+    txt.textContent='Optimizando '+(i+1)+'/'+items.length+': '+it.label;
+    bar.style.width=Math.round(((i)/items.length)*100)+'%';
+    try{
+      var blob=dataURLtoBlob(it.data);
+      var compressed=await compressImage(blob,it.type==='logo'?500:(it.type==='product'?800:1000),0.72);
+      var file=new File([compressed],'img.jpg',{type:'image/jpeg'});
+      var url=null;
+      if(it.type==='product'){
+        url=await uploadPhotoToStorage(file,'productos/'+it.id+'_'+Date.now());
+        if(url){
+          var idx=db.findIndex(function(p){return p.id===it.id;});
+          if(idx>=0){
+            db[idx].photo=url;
+            await sbUpsert('productos',{id:db[idx].id,ref:db[idx].ref,name:db[idx].name,cat:db[idx].cat,price:db[idx].price,stock:db[idx].stock,min_stock:db[idx].min||0,brand:db[idx].brand||null,photo:url,allow_nostock:!!db[idx].allowNoStock},'id');
+          }
+        }
+      } else if(it.type==='logo'){
+        url=await uploadLogoToStorage(file);
+        if(url) cfg.logo=url;
+      } else if(it.type==='banner'){
+        url=await uploadBannerToStorage(file);
+        if(url) cfg.bannerImg=url;
+      } else if(it.type==='homeBanner'){
+        url=await uploadBannerToStorage(file);
+        if(url && cfg.homeBanners && cfg.homeBanners[it.idx]) cfg.homeBanners[it.idx].img=url;
+      }
+      if(url) done++; else failed++;
+    }catch(e){
+      console.warn('Optimización '+it.label+':',e.message);
+      failed++;
+    }
+  }
+
+  saveDB(db);
+  saveCfg(cfg);
+  if(_sbReady){
+    try{ await pushConfigToSB(cfg); }catch(e){ console.warn('Sync config:',e.message); }
+  }
+
+  bar.style.width='100%';
+  txt.textContent='Listo: '+done+' optimizada'+(done!==1?'s':'')+(failed?' · '+failed+' fallaron':'');
+  btn.disabled=false;
+  toast(done+' foto'+(done!==1?'s':'')+' optimizada'+(done!==1?'s':'')+', espacio liberado en la base de datos','ok');
+  setTimeout(function(){ wrap.style.display='none'; previewCleanup(); renderInventory(); },1500);
+}
+
+async function handlePhotoCompressed(f){
+  // Vista previa inmediata (sin esperar la compresión) para que se sienta rápido
+  var quickReader=new FileReader();
+  quickReader.onload=function(e){ setPhoto(e.target.result); };
+  quickReader.readAsDataURL(f);
+
+  try{
+    var blob=await compressImage(f,800,0.72); // máx 800px de lado, calidad 72%
+    if(_sbReady){
+      var path='productos/'+Date.now()+'_'+Math.random().toString(36).slice(2,8);
+      var url=await uploadPhotoToStorage(new File([blob],'foto.jpg',{type:'image/jpeg'}),path);
+      if(url){ pendPhoto=url; setPhoto(url); return; }
+    }
+    // Sin Supabase disponible: guarda el base64 ya comprimido (mucho más liviano)
+    var reader=new FileReader();
+    reader.onload=function(e){ pendPhoto=e.target.result; setPhoto(e.target.result); };
+    reader.readAsDataURL(blob);
+  }catch(err){
+    console.warn('compressImage:',err.message);
+    // Si algo falla, se usa el archivo original tal cual (comportamiento anterior)
+    var r=new FileReader();
+    r.onload=function(e){ pendPhoto=e.target.result; setPhoto(e.target.result); };
+    r.readAsDataURL(f);
+  }
 }
 function setPhoto(src){
   const pi=document.getElementById('pprev');pi.src=src;pi.style.display='block';
@@ -5245,13 +5447,18 @@ async function doMassPhotos(){
     var entry=toUpload[i];
     try{
       var photoUrl='';
+      var fileToSend=entry.file;
+      try{
+        var blobC=await compressImage(entry.file,800,0.72);
+        fileToSend=new File([blobC],'foto.jpg',{type:'image/jpeg'});
+      }catch(ce){ console.warn('No se pudo comprimir '+entry.ref+', se sube tal cual:',ce.message); }
       if(_sbReady){
         // Subir a Supabase Storage
-        photoUrl=await uploadPhotoToStorage(entry.file,'productos/'+entry.ref);
+        photoUrl=await uploadPhotoToStorage(fileToSend,'productos/'+entry.ref);
       }
       if(!photoUrl){
-        // Fallback: base64 local
-        photoUrl=await fileToBase64(entry.file);
+        // Fallback: base64 local (ya comprimido)
+        photoUrl=await fileToBase64(fileToSend);
       }
       // Actualizar producto en DB local y Supabase
       var idx=db.findIndex(function(p){return p.id===entry.prodId;});
