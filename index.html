@@ -776,8 +776,10 @@ button{cursor:pointer;border:none;background:none}
     <div class="iacts">
       <button class="iab" onclick="exportExcel()">📤 Exportar</button>
       <button class="iab" onclick="openImport()">📥 Importar</button>
+      <button class="iab" id="inv-sync-btn" onclick="forzarSincroInventario()">🔄 Sincronizar</button>
       <button class="iab prime" onclick="openProduct()">+ Producto</button>
     </div>
+    <div id="inv-sync-status" style="font-size:11px;color:var(--t3);padding:6px 12px 0"></div>
     <div class="isearch">
       <div class="isearch-wrap">
         <span class="isearch-ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
@@ -1991,7 +1993,7 @@ async function pushConfigToSB(cfg){
 
 // ─── SYNC COMPLETO — peticiones en paralelo, fallo parcial no bloquea ────────
 async function syncFromSupabase(){
-  if(!_sbReady)return;
+  if(!_sbReady)return {productsOk:false};
   // Las 3 peticiones corren en paralelo — si una falla las otras siguen
   var results=await Promise.allSettled([
     sbGetAll('productos','?order=id.asc'),
@@ -2001,9 +2003,11 @@ async function syncFromSupabase(){
     sbGetAll('vendedores','?order=name.asc')
   ]);
   var ok=0;
-  // Productos
-  if(results[0].status==='fulfilled'&&results[0].value&&results[0].value.length){
-    _memSet(DBK,results[0].value.map(mapProd));ok++;
+  // Productos — productsOk indica si la descarga fue exitosa (no truncada/abortada)
+  var productsOk=false;
+  if(results[0].status==='fulfilled'&&results[0].value!==null){
+    productsOk=true;
+    if(results[0].value.length){_memSet(DBK,results[0].value.map(mapProd));ok++;}
   }
   // Pedidos
   if(results[1].status==='fulfilled'&&results[1].value){
@@ -2032,6 +2036,7 @@ async function syncFromSupabase(){
     // Re-render pantalla activa con datos frescos
     refreshCurrentScreen();
   }
+  return {productsOk:productsOk};
 }
 
 const SEED=[
@@ -2642,11 +2647,26 @@ async function boot(){
   applyStoredTheme();loadCarts();buildNav();goTo('catalog');
   // Sincronizar desde Supabase al entrar
   if(_sbReady){
-    syncFromSupabase().then(function(){
-      applyStoredTheme();
-      refreshCurrentScreen();
-    });
+    syncFirstTimeWithRetry();
     startAutoSync(); // inicia WebSocket Realtime + polling fallback
+  }
+}
+
+// Primera sincronización de un dispositivo: reintenta con pausas crecientes
+// para que una conexión inestable no deje la app pegada en el catálogo de
+// ejemplo — clave justo después de instalar la app en un celular nuevo.
+async function syncFirstTimeWithRetry(){
+  var maxTries=5;
+  var isFreshDevice=getDB().length<=10; // aún no ha traído el catálogo real
+  if(isFreshDevice)toast('Descargando catálogo completo...','ok');
+  for(var i=0;i<maxTries;i++){
+    var res=await syncFromSupabase();
+    applyStoredTheme();
+    if(res&&res.productsOk)return; // éxito, no hace falta reintentar
+    if(i<maxTries-1)await new Promise(function(r){setTimeout(r,3000*(i+1));});
+  }
+  if(isFreshDevice&&getDB().length<=10){
+    toast('No se pudo descargar el catálogo completo — revisa tu conexión y usa "🔄 Sincronizar" en Inventario','err');
   }
 }
 
@@ -4428,6 +4448,45 @@ function clearInvSearch(){
   PAG.inv = 1;
   renderInventory();
   if(inp) inp.focus();
+}
+
+// ─── SINCRONIZACIÓN MANUAL VISIBLE — para verificar/forzar el número real ────
+async function forzarSincroInventario(){
+  var btn=document.getElementById('inv-sync-btn');
+  var status=document.getElementById('inv-sync-status');
+  if(!_sbReady){
+    status.innerHTML='⚠️ Sin conexión a Supabase — no se puede verificar el dato real del servidor.';
+    status.style.color='var(--rd)';
+    return;
+  }
+  var before=getDB().length;
+  btn.disabled=true;
+  btn.textContent='🔄 Sincronizando...';
+  status.textContent='Consultando el servidor...';
+  status.style.color='var(--t3)';
+
+  var r=await sbGetAll('productos','?order=id.asc');
+
+  btn.disabled=false;
+  btn.textContent='🔄 Sincronizar';
+
+  if(r===null){
+    status.innerHTML='❌ Falló la conexión al traer el listado completo — se mantuvo tu inventario local sin cambios ('+before+'). Intenta de nuevo con mejor señal.';
+    status.style.color='var(--rd)';
+    toast('No se pudo completar la sincronización — reintenta con mejor conexión','err');
+    return;
+  }
+
+  _memSet(DBK,r.map(mapProd));
+  var after=r.length;
+  renderInventory();
+  if(after===before){
+    status.innerHTML='✅ Verificado: <strong style="color:var(--t)">'+after+'</strong> productos — coincide con el servidor.';
+  } else {
+    status.innerHTML='✅ Actualizado: pasaste de '+before+' a <strong style="color:var(--or2)">'+after+'</strong> productos (dato real del servidor).';
+  }
+  status.style.color='var(--tl)';
+  toast('Inventario sincronizado: '+after+' productos','ok');
 }
 
 function renderInventory(){
