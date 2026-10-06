@@ -1761,16 +1761,32 @@ function sbFetch(url,opts,timeoutMs){
   });
 }
 
+// ── PROYECTO RESTRINGIDO (402): Supabase bloquea el proyecto al exceder la cuota
+// de transferencia (egress). Seguir insistiendo solo empeora el consumo, así que
+// al detectarlo se detienen TODAS las peticiones hasta recargar la página.
+var _sbRestricted=false;
+function sbMarkRestricted(){
+  if(_sbRestricted)return;
+  _sbRestricted=true;
+  try{ if(_syncInterval)clearInterval(_syncInterval); }catch(e){}
+  try{ if(_realtimeRetry)clearTimeout(_realtimeRetry); if(_realtimeWS)_realtimeWS.close(); }catch(e){}
+  if(typeof toast==='function'){
+    toast('⚠️ Supabase está restringido por exceder la cuota de datos. La app seguirá con los datos guardados en este equipo. Revisa tu plan en supabase.com','err');
+  }
+  console.warn('Supabase restringido (402 exceed_egress_quota) — sincronización pausada');
+}
+
 // GET con reintento automático — headers mínimos para evitar CORS preflight
 // GET simple — para consultas pequeñas (config, pedidos recientes)
 async function sbGet(table,query){
-  if(!_sbReady)return null;
+  if(!_sbReady||_sbRestricted)return null;
   var attempts=3;
   for(var i=0;i<attempts;i++){
     try{
       var r=await sbFetch(sbUrl(table,query),{
         headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Range-Unit':'items','Prefer':'count=none'}
       },15000);
+      if(r.status===402){sbMarkRestricted();return null;}
       if(!r.ok)return null;
       return await r.json();
     }catch(e){
@@ -1783,7 +1799,7 @@ async function sbGet(table,query){
 
 // GET ALL — pagina automáticamente de 500 en 500 para tablas grandes (productos)
 async function sbGetAll(table,query,pageSize){
-  if(!_sbReady)return null;
+  if(!_sbReady||_sbRestricted)return null;
   pageSize=pageSize||500;
   var allRows=[];
   var from=0;
@@ -1805,6 +1821,10 @@ async function sbGetAll(table,query,pageSize){
         },25000);
         if(r.ok){rows=await r.json();break;}
         if(r.status===416){rows=[];break;} // rango fuera de límite = ya no hay más
+        if(r.status===402){sbMarkRestricted();return null;} // cuota excedida: no insistir
+        // Cualquier otro error HTTP cuenta como intento fallido (con pausa), no como "sin datos"
+        if(attempt===3){pageFailed=true;}
+        else await new Promise(function(res){setTimeout(res,1200*(attempt+1));});
       }catch(e){
         if(attempt===3){pageFailed=true;console.warn('SB GetAll fallo definitivo pag '+page+':',e.message);}
         else await new Promise(function(res){setTimeout(res,1200*(attempt+1));});
@@ -1854,6 +1874,7 @@ async function _sbUpsertChunk(table,rows,onConflict){
       var url=sbUrl(table,onConflict?'?on_conflict='+onConflict:'');
       var r=await sbFetch(url,{method:'POST',headers:Object.assign({'Prefer':pref},sbHeaders(true)),body:JSON.stringify(rows)},20000);
       if(r.ok)return true;
+      if(r.status===402)sbMarkRestricted();
       var errText=await r.text();
       console.warn('SB UPSERT error ('+r.status+'):', errText.slice(0,200));
       return false;
@@ -2001,20 +2022,26 @@ async function pushConfigToSB(cfg){
 }
 
 // ─── SYNC COMPLETO — peticiones en paralelo, fallo parcial no bloquea ────────
-async function syncFromSupabase(){
-  if(!_sbReady)return {productsOk:false};
-  // Las 3 peticiones corren en paralelo — si una falla las otras siguen
+// syncFromSupabase(only): sin argumentos baja TODAS las tablas (arranque / botón
+// manual). Con un arreglo, p.ej. ['pedidos'], baja SOLO esas tablas — así un
+// cambio en pedidos ya no obliga a re-descargar 1900 productos y 700 clientes
+// en cada dispositivo conectado (principal causa de exceder la cuota de egress).
+async function syncFromSupabase(only){
+  if(!_sbReady||_sbRestricted)return {productsOk:false};
+  var want=function(t){return !only||only.indexOf(t)>-1;};
+  var skip=Promise.resolve(undefined);
   var results=await Promise.allSettled([
-    sbGetAll('productos','?order=id.asc'),
-    sbGet('pedidos','?order=created_at.desc'),
-    sbGet('configuracion','?id=eq.main'),
-    sbGetAll('clientes','?order=name.asc'),
-    sbGetAll('vendedores','?order=name.asc')
+    want('productos')?sbGetAll('productos','?order=id.asc'):skip,
+    want('pedidos')?sbGet('pedidos','?order=created_at.desc'):skip,
+    want('configuracion')?sbGet('configuracion','?id=eq.main'):skip,
+    want('clientes')?sbGetAll('clientes','?order=name.asc'):skip,
+    want('vendedores')?sbGetAll('vendedores','?order=name.asc'):skip
   ]);
-  var ok=0;
+  var ok=0, cfgUpdated=false;
+  if(!only){_lastFullSyncAt=Date.now();_lastProdSyncAt=Date.now();}
   // Productos — productsOk indica si la descarga fue exitosa (no truncada/abortada)
   var productsOk=false;
-  if(results[0].status==='fulfilled'&&results[0].value!==null){
+  if(results[0].status==='fulfilled'&&results[0].value!==undefined&&results[0].value!==null){
     productsOk=true;
     if(results[0].value.length){ if(saveDB(results[0].value.map(mapProd)))ok++; }
   }
@@ -2025,7 +2052,7 @@ async function syncFromSupabase(){
   // Config
   if(results[2].status==='fulfilled'&&results[2].value&&results[2].value.length){
     var merged=mapCfgFromSB(results[2].value[0],getCfg());
-    _memSet(CFG_K,merged);ok++;
+    _memSet(CFG_K,merged);ok++;cfgUpdated=true;
   }
   // Clientes
   if(results[3]&&results[3].status==='fulfilled'&&results[3].value){
@@ -2035,13 +2062,15 @@ async function syncFromSupabase(){
     _memSet(SEL_K,results[4].value);ok++;
   }
   if(ok>0){
-    console.log('Supabase sync OK ('+ok+'/4)');
-    // Aplicar config fresca: tema, logo, banner, nombre
-    var freshCfg=getCfg();
-    applyTheme(BG_THEMES[freshCfg.bgTheme||'dark']||BG_THEMES.dark);
-    applyLogo(freshCfg.logo||'');
-    applyBrandName(freshCfg.empresa||'MotoRepuestos Pro');
-    updateLoginScreen();
+    console.log('Supabase sync OK ('+ok+' tablas'+(only?': '+only.join(','):'')+')');
+    if(cfgUpdated||!only){
+      // Aplicar config fresca: tema, logo, banner, nombre
+      var freshCfg=getCfg();
+      applyTheme(BG_THEMES[freshCfg.bgTheme||'dark']||BG_THEMES.dark);
+      applyLogo(freshCfg.logo||'');
+      applyBrandName(freshCfg.empresa||'MotoRepuestos Pro');
+      updateLoginScreen();
+    }
     // Re-render pantalla activa con datos frescos
     refreshCurrentScreen();
   }
@@ -2683,6 +2712,7 @@ async function syncFirstTimeWithRetry(){
     var res=await syncFromSupabase();
     applyStoredTheme();
     if(res&&res.productsOk)return; // éxito, no hace falta reintentar
+    if(_sbRestricted)return; // proyecto bloqueado por cuota: reintentar no sirve
     if(i<maxTries-1)await new Promise(function(r){setTimeout(r,3000*(i+1));});
   }
   if(isFreshDevice&&getDB().length<=10){
@@ -2698,24 +2728,51 @@ var _syncInterval=null;  // fallback polling
 
 // ─── REALTIME VIA SUPABASE WEBSOCKET ────────────────────────────────────────
 function startAutoSync(){
-  if(!_sbReady)return;
+  if(!_sbReady||_sbRestricted)return;
   startRealtime();
-  // Fallback polling cada 15s por si WS falla o está cerrado
+  // Fallback polling: ANTES cada 15 s descargando todo (causa del exceso de
+  // egress). Ahora cada 5 min, solo si la pestaña está visible, y solo
+  // pedidos (lo único que cambia con frecuencia sin avisar por tiempo real).
   if(_syncInterval)clearInterval(_syncInterval);
   _syncInterval=setInterval(function(){
-    if(_sbReady&&!_syncInProgress&&(!_realtimeWS||_realtimeWS.readyState!==1)){
-      doSync();
+    if(document.visibilityState!=='visible')return;
+    if(_sbReady&&!_sbRestricted&&!_syncInProgress&&(!_realtimeWS||_realtimeWS.readyState!==1)){
+      doSync(['pedidos','configuracion']);
     }
-  },15000);
+  },300000);
 }
 
-function doSync(){
-  if(_syncInProgress)return;
+var _lastSyncAt=0, _lastFullSyncAt=0;
+function doSync(only){
+  if(_syncInProgress||_sbRestricted)return;
+  // Freno anti-ráfagas: máximo una sincronización cada 20 s
+  if(Date.now()-_lastSyncAt<20000)return;
+  _lastSyncAt=Date.now();
   _syncInProgress=true;
-  syncFromSupabase().then(function(){
+  syncFromSupabase(only).then(function(){
     refreshCurrentScreen();
     _syncInProgress=false;
   }).catch(function(){_syncInProgress=false;});
+}
+
+// Cambios en tiempo real: se agrupan (debounce) y bajan solo la tabla afectada
+var _rtPending={}, _rtTimer=null;
+function queueRealtimeSync(table){
+  if(table)_rtPending[table]=true;
+  if(_rtTimer)clearTimeout(_rtTimer);
+  _rtTimer=setTimeout(function(){
+    var tables=Object.keys(_rtPending);
+    _rtPending={};
+    _rtTimer=null;
+    if(!tables.length||_sbRestricted||document.visibilityState!=='visible')return;
+    if(_syncInProgress){tables.forEach(function(t){_rtPending[t]=true;});return;}
+    _syncInProgress=true;
+    syncFromSupabase(tables).then(function(){
+      refreshCurrentScreen();
+      _syncInProgress=false;
+      showSyncDot(true);
+    }).catch(function(){_syncInProgress=false;});
+  },4000);
 }
 
 function refreshCurrentScreen(){
@@ -2725,7 +2782,7 @@ function refreshCurrentScreen(){
 }
 
 function startRealtime(){
-  if(!_sbReady)return;
+  if(!_sbReady||_sbRestricted)return;
   if(_realtimeWS&&_realtimeWS.readyState===1)return; // ─── PERFORMANCE: Cache-first + Background Sync conectado
   if(_realtimeRetry){clearTimeout(_realtimeRetry);_realtimeRetry=null;}
 
@@ -2757,14 +2814,7 @@ function startRealtime(){
         if(msg.event==='postgres_changes'&&msg.payload&&msg.payload.data){
           var tbl=msg.payload.data.table||'';
           console.log('Realtime change:',tbl,msg.payload.data.type);
-          if(!_syncInProgress){
-            _syncInProgress=true;
-            syncFromSupabase().then(function(){
-              refreshCurrentScreen();
-              _syncInProgress=false;
-              showSyncDot(true);
-            }).catch(function(){_syncInProgress=false;});
-          }
+          queueRealtimeSync(tbl); // solo baja la tabla que cambió, agrupando ráfagas
         }
         // Keepalive heartbeat
         if(msg.event==='heartbeat'){
@@ -2779,8 +2829,8 @@ function startRealtime(){
       _realtimeWS=null;
       // Reconectar automáticamente
       _realtimeRetry=setTimeout(function(){
-        if(_sbReady)startRealtime();
-      },5000);
+        if(_sbReady&&!_sbRestricted)startRealtime();
+      },15000);
     };
 
     ws.onerror=function(){
@@ -2801,20 +2851,35 @@ function showSyncDot(connected){
 
 // Reconectar al volver a la pestaña
 document.addEventListener('visibilitychange',function(){
-  if(document.visibilityState==='visible'&&_sbReady){
+  if(document.visibilityState==='visible'&&_sbReady&&!_sbRestricted){
     if(!_realtimeWS||_realtimeWS.readyState!==1)startRealtime();
-    doSync();
+    // Solo pedidos y config al volver (livianos). El catálogo/clientes completos
+    // únicamente si pasaron más de 30 min desde la última descarga completa.
+    var stale=Date.now()-_lastFullSyncAt>1800000;
+    doSync(stale?undefined:['pedidos','configuracion']);
   }
 });
 
 
 // ─── BACKGROUND SYNC — fetch a SB sin bloquear UI ────────────────────────────
-async function bgSync(table){
-  if(!_sbReady)return false;
+// Control de frecuencia: navegar entre pestañas ya NO re-descarga el catálogo
+// completo cada vez (cada descarga = ~2000 filas por dispositivo). El tiempo
+// real avisa los cambios; esto es solo una red de seguridad cada 10 minutos.
+var _lastProdSyncAt=0, _lastOrdSyncAt=0;
+async function bgSync(table,force){
+  if(!_sbReady||_sbRestricted)return false;
+  var now=Date.now();
+  if(!force){
+    if(table==='productos'&&now-_lastProdSyncAt<600000)return false;
+    if(table==='pedidos'&&now-_lastOrdSyncAt<45000)return false;
+  }
+  if(table==='productos')_lastProdSyncAt=now;
+  if(table==='pedidos')_lastOrdSyncAt=now;
   try{
     var r;
     if(table==='productos'){
       r=await sbGetAll('productos','?order=id.asc');
+      if(!r)_lastProdSyncAt=0; // falló: permitir reintento pronto
       if(r&&r.length){return saveDB(r.map(mapProd));}
     } else if(table==='pedidos'){
       r=await sbGet('pedidos','?order=created_at.desc');
@@ -3708,7 +3773,7 @@ async function ejecutarEnvioWA(){
   // Subir a SB y confirmar
   pushOrderToSB(newOrder).then(function(){
     setTimeout(function(){
-      bgSync('pedidos').then(function(){
+      bgSync('pedidos',true).then(function(){
         if(document.getElementById('sc-history')&&document.getElementById('sc-history').classList.contains('active'))renderHistory();
       });
     },2000);
@@ -3773,7 +3838,7 @@ async function ejecutarEnvioWA(){
   setTimeout(function(){
     goTo('catalog');
     renderCartsBar();
-    if(_sbReady)bgSync('pedidos');
+    if(_sbReady)bgSync('pedidos',true);
   },800);
 }
 
@@ -4490,6 +4555,11 @@ async function forzarSincroInventario(){
   btn.disabled=false;
   btn.textContent='🔄 Sincronizar';
 
+  if(r===null&&_sbRestricted){
+    status.innerHTML='⛔ Supabase bloqueó el proyecto por exceder la cuota de transferencia de datos (error 402). Tu inventario local se mantiene sin cambios ('+before+'). Hay que revisar el plan en supabase.com → Settings → Billing.';
+    status.style.color='var(--rd)';
+    return;
+  }
   if(r===null){
     status.innerHTML='❌ Falló la conexión al traer el listado completo — se mantuvo tu inventario local sin cambios ('+before+'). Intenta de nuevo con mejor señal.';
     status.style.color='var(--rd)';
@@ -4746,7 +4816,7 @@ async function markOrderSeen(id){
     if(r.ok&&data.length>0){
       console.log('Pedido '+id+' marcado visto=true en SB ✓');
       toast('Pedido revisado ✓','ok');
-      setTimeout(function(){bgSync('pedidos');},800);
+      setTimeout(function(){bgSync('pedidos',true);},800);
     } else if(r.ok&&data.length===0){
       console.warn('PATCH visto: HTTP 200 pero 0 filas — verificar RLS en Supabase');
     }
