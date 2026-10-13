@@ -932,6 +932,12 @@ button{cursor:pointer;border:none;background:none}
             <button class="cfg-save" id="cleanup-btn" onclick="ejecutarOptimizacion()" style="margin-top:0">🧹 Buscar y optimizar fotos pesadas</button>
           </div>
           <div class="cfg-section">
+            <div class="cfg-title">🖼️ Miniaturas de fotos (ahorra datos)</div>
+            <p style="font-size:12px;color:var(--t2);margin-bottom:12px;line-height:1.6">Crea una versión pequeña de cada foto ya subida. El catálogo y las listas cargan la miniatura (≈10 veces menos datos) y la foto completa solo al ampliarla. Ejecútalo una vez desde un computador con buen internet; las fotos nuevas ya se suben con miniatura.</p>
+            <div id="thumbs-txt" style="font-size:12px;color:var(--t2);margin-bottom:10px"></div>
+            <button class="cfg-save" id="thumbs-btn" onclick="generarMiniaturas()" style="margin-top:0">🖼️ Generar miniaturas</button>
+          </div>
+          <div class="cfg-section">
             <div class="cfg-title">🗑️ Limpiar datos por rango de fecha</div>
             <p style="font-size:12px;color:var(--t2);margin-bottom:12px;line-height:1.6">Elimina pedidos en el rango seleccionado. El inventario <strong style="color:var(--t)">no se elimina</strong>.</p>
             <div class="del-range-row">
@@ -2021,43 +2027,117 @@ async function pushConfigToSB(cfg){
   await sbUpsert('configuracion',{id:'main',empresa:cfg.empresa,nit:cfg.nit||null,tel:cfg.tel||null,dir:cfg.dir||null,wa:cfg.wa||null,iva:cfg.iva,iva_nom:cfg.ivaNom,cats:cfg.cats,brands:cfg.brands,bg_theme:cfg.bgTheme||'dark',logo:cfg.logo||null,banner_img:cfg.bannerImg||null,admin_user:cfg.adminUser||'admin',admin_pass:cfg.adminPass||'1234',sb_url:cfg.sbUrl||SB_URL||null,sb_key:cfg.sbKey||SB_KEY||null},'id');
 }
 
+
+// ─── SINCRONIZACIÓN INCREMENTAL ─────────────────────────────────────────────
+// Requiere la columna updated_at (script SQL). Guarda un "cursor" por tabla (el
+// updated_at más reciente que ya tenemos, tomado del SERVIDOR) y en cada sync
+// solo baja las filas con updated_at mayor. Lo borrado se detecta con una
+// consulta liviana de ids (máx. cada 30 min). Sin columna/cursor => descarga completa.
+var _lastDelCheck={};
+function _curKey(t){return 'mrp_cur_'+t;}
+function _getCur(t){try{return localStorage.getItem(_curKey(t));}catch(e){return null;}}
+function _setCur(t,v){try{if(v)localStorage.setItem(_curKey(t),v);else localStorage.removeItem(_curKey(t));}catch(e){}}
+function _maxUpd(rows,cur){var m=cur||'';for(var i=0;i<rows.length;i++){var u=rows[i].updated_at;if(u&&u>m)m=u;}return m||null;}
+function resetSyncCursors(){['productos','clientes','pedidos'].forEach(function(t){_setCur(t,null);_lastDelCheck[t]=0;});}
+
+// opts: {get:fn→array local, map:fn(rawRow), save:fn(list)→bool, sort:fn|null, force:bool, noDel:bool}
+// devuelve {ok, changed, full, list}
+async function sbIncremental(table,opts){
+  var local=opts.get()||[];
+  var cur=opts.force?null:_getCur(table);
+  if(!cur||!local.length){
+    var all=await sbGetAll(table,'?order=id.asc');
+    if(all===null)return {ok:false};
+    var list=all.map(opts.map);
+    if(opts.sort)list.sort(opts.sort);
+    if(all.length){
+      if(!opts.save(list))return {ok:false,list:list,full:true};
+      _setCur(table,_maxUpd(all,null)); // null si la tabla aún no tiene updated_at => siempre completo
+    }
+    _lastDelCheck[table]=Date.now();
+    return {ok:true,changed:all.length,full:true,list:list};
+  }
+  // margen de 2 min por transacciones que confirmaron tarde
+  var since=new Date(Date.parse(cur)-120000).toISOString();
+  var rows=await sbGetAll(table,'?updated_at=gt.'+encodeURIComponent(since)+'&order=updated_at.asc');
+  if(rows===null)return {ok:false};
+  var map=new Map();
+  local.forEach(function(x){map.set(x.id,x);});
+  var changed=0;
+  rows.forEach(function(r){
+    var m=opts.map(r);
+    var old=map.get(r.id);
+    if(!old||JSON.stringify(old)!==JSON.stringify(m))changed++;
+    map.set(r.id,m);
+  });
+  if(!opts.noDel&&Date.now()-(_lastDelCheck[table]||0)>1800000){
+    var ids=await sbGetAll(table,'?select=id&order=id.asc',1000);
+    if(ids!==null){
+      _lastDelCheck[table]=Date.now();
+      var present=new Set(ids.map(function(r){return r.id;}));
+      Array.from(map.keys()).forEach(function(k){if(!present.has(k)){map.delete(k);changed++;}});
+    }
+  }
+  var newCur=_maxUpd(rows,cur);
+  if(!changed){ if(newCur!==cur)_setCur(table,newCur); return {ok:true,changed:0,full:false,list:local}; }
+  var list2=Array.from(map.values());
+  if(opts.sort)list2.sort(opts.sort);
+  if(!opts.save(list2))return {ok:false,list:list2};
+  _setCur(table,newCur);
+  return {ok:true,changed:changed,full:false,list:list2};
+}
+function incProductos(force){
+  return sbIncremental('productos',{force:force,get:function(){return _MEM_has_db()?getDB():[];},map:mapProd,save:saveDB,sort:function(a,b){return a.id<b.id?-1:1;}});
+}
+function incClientes(force){
+  return sbIncremental('clientes',{force:force,get:function(){return _memGet(CLI_K)||[];},map:function(r){return r;},save:function(l){return _memSet(CLI_K,l);},
+    sort:function(a,b){return String(a.name||'').localeCompare(String(b.name||''),'es');}});
+}
+function incPedidos(force){
+  return sbIncremental('pedidos',{force:force,noDel:true,get:function(){return getOrds();},map:mapOrder,
+    save:function(l){
+      // Conserva pedidos locales aún no subidos (id mayor al más reciente del servidor)
+      var have={},mx=null;
+      l.forEach(function(o){have[o.id]=1;if(mx===null||o.id>mx)mx=o.id;});
+      var pend=getOrds().filter(function(o){return !have[o.id]&&mx!==null&&o.id>mx;});
+      var out=pend.concat(l);
+      out.sort(function(a,b){return a.id<b.id?1:-1;});
+      return _memSet(ORK,out);
+    },
+    sort:function(a,b){return a.id<b.id?1:-1;}});
+}
+// getDB() devuelve SEED si no hay datos reales: para el cursor eso cuenta como "vacío"
+function _MEM_has_db(){try{return !!localStorage.getItem(DBK);}catch(e){return false;}}
+
 // ─── SYNC COMPLETO — peticiones en paralelo, fallo parcial no bloquea ────────
 // syncFromSupabase(only): sin argumentos baja TODAS las tablas (arranque / botón
 // manual). Con un arreglo, p.ej. ['pedidos'], baja SOLO esas tablas — así un
 // cambio en pedidos ya no obliga a re-descargar 1900 productos y 700 clientes
 // en cada dispositivo conectado (principal causa de exceder la cuota de egress).
-async function syncFromSupabase(only){
+async function syncFromSupabase(only,force){
   if(!_sbReady||_sbRestricted)return {productsOk:false};
   var want=function(t){return !only||only.indexOf(t)>-1;};
   var skip=Promise.resolve(undefined);
   var results=await Promise.allSettled([
-    want('productos')?sbGetAll('productos','?order=id.asc'):skip,
-    want('pedidos')?sbGet('pedidos','?order=created_at.desc'):skip,
+    want('productos')?incProductos(force):skip,
+    want('pedidos')?incPedidos(force):skip,
     want('configuracion')?sbGet('configuracion','?id=eq.main'):skip,
-    want('clientes')?sbGetAll('clientes','?order=name.asc'):skip,
+    want('clientes')?incClientes(force):skip,
     want('vendedores')?sbGetAll('vendedores','?order=name.asc'):skip
   ]);
-  var ok=0, cfgUpdated=false;
+  var ok=0, cfgUpdated=false, anyChange=false;
   if(!only){_lastFullSyncAt=Date.now();_lastProdSyncAt=Date.now();}
-  // Productos — productsOk indica si la descarga fue exitosa (no truncada/abortada)
   var productsOk=false;
-  if(results[0].status==='fulfilled'&&results[0].value!==undefined&&results[0].value!==null){
-    productsOk=true;
-    if(results[0].value.length){ if(saveDB(results[0].value.map(mapProd)))ok++; }
-  }
-  // Pedidos
-  if(results[1].status==='fulfilled'&&results[1].value){
-    _memSet(ORK,results[1].value.map(mapOrder));ok++;
-  }
-  // Config
+  var rp=results[0];
+  if(rp.status==='fulfilled'&&rp.value&&rp.value.ok){productsOk=true;ok++;if(rp.value.changed)anyChange=true;}
+  var ro=results[1];
+  if(ro.status==='fulfilled'&&ro.value&&ro.value.ok){ok++;if(ro.value.changed)anyChange=true;}
   if(results[2].status==='fulfilled'&&results[2].value&&results[2].value.length){
     var merged=mapCfgFromSB(results[2].value[0],getCfg());
     _memSet(CFG_K,merged);ok++;cfgUpdated=true;
   }
-  // Clientes
-  if(results[3]&&results[3].status==='fulfilled'&&results[3].value){
-    _memSet(CLI_K,results[3].value);ok++;
-  }
+  var rc=results[3];
+  if(rc&&rc.status==='fulfilled'&&rc.value&&rc.value.ok){ok++;if(rc.value.changed)anyChange=true;}
   if(results[4]&&results[4].status==='fulfilled'&&results[4].value){
     _memSet(SEL_K,results[4].value);ok++;
   }
@@ -2263,7 +2343,7 @@ function _homeProdCardHtml(p){
   var dscto=parseFloat(p.dscto)||0;
   var precioFinal=dscto>0?Math.round(p.price*(1-dscto/100)):p.price;
   var img=p.photo||'';
-  var imgHtml=img?'<img src="'+img+'" alt="">':'<span style="font-size:26px;opacity:.3">📦</span>';
+  var imgHtml=img?photoImg(img):'<span style="font-size:26px;opacity:.3">📦</span>';
   var badge=dscto>0?'<span class="home2-pcard-badge">-'+dscto+'%</span>':'';
   var priceHtml='<span class="home2-pcard-price">'+fmt(precioFinal)+'</span>'+(dscto>0?'<span class="home2-pcard-price-old">'+fmt(p.price)+'</span>':'');
   return '<div class="home2-pcard-imgwrap">'+badge+imgHtml+'</div>'+
@@ -2878,32 +2958,18 @@ async function bgSync(table,force){
   try{
     var r;
     if(table==='productos'){
-      r=await sbGetAll('productos','?order=id.asc');
-      if(!r)_lastProdSyncAt=0; // falló: permitir reintento pronto
-      if(r&&r.length){return saveDB(r.map(mapProd));}
+      var rp=await incProductos(false);
+      if(!rp.ok)_lastProdSyncAt=0; // falló: permitir reintento pronto
+      return !!rp.ok&&rp.changed>0;
     } else if(table==='pedidos'){
-      r=await sbGet('pedidos','?order=created_at.desc');
-      if(r){
-        var sbOrds=r.map(mapOrder);
-        var localOrds=getOrds();
-        // Fusionar para no perder pedidos recién creados que aún no llegaron a SB
-        if(sbOrds.length>=localOrds.length){
-          _memSet(ORK,sbOrds);
-        } else {
-          var sbIds=sbOrds.map(function(o){return o.id;});
-          var onlyLocal=localOrds.filter(function(o){return sbIds.indexOf(o.id)<0;});
-          var fusionados=onlyLocal.concat(sbOrds);
-          fusionados.sort(function(a,b){return a.id<b.id?1:-1;});
-          _memSet(ORK,fusionados);
-        }
-        return true;
-      }
+      var ro=await incPedidos(false);
+      return !!ro.ok;
     } else if(table==='configuracion'){
       r=await sbGet('configuracion','?id=eq.main');
       if(r&&r.length){_memSet(CFG_K,mapCfgFromSB(r[0],getCfg()));return true;}
     } else if(table==='clientes'){
-      r=await sbGetAll('clientes','?order=name.asc');
-      if(r){_memSet(CLI_K,r);return true;}
+      var rc=await incClientes(false);
+      return !!rc.ok;
     } else if(table==='vendedores'){
       r=await sbGetAll('vendedores','?order=name.asc');
       if(r){_memSet(SEL_K,r);return true;}
@@ -3121,7 +3187,7 @@ function renderCatalog(){
     var card=document.createElement('div');
     card.className='pc'+(agotado?' sold':'');
     var imgWrap=document.createElement('div');imgWrap.className='pcimg';
-    if(p.photo){var im=document.createElement('img');im.src=p.photo;im.alt='';im.onclick=function(){lightbox(p.photo,event);};imgWrap.appendChild(im);}
+    if(p.photo){var im=photoImgEl(p.photo);im.onclick=function(){lightbox(photoFull(p.photo),event);};imgWrap.appendChild(im);}
     else{var sp=document.createElement('span');sp.style.fontSize='38px';sp.textContent='🔧';imgWrap.appendChild(sp);}
     if(p.stock>0&&p.stock<=p.min){var lt=document.createElement('span');lt.className='low-tag';lt.textContent='Stock bajo';imgWrap.appendChild(lt);}
     if(tieneOferta){var nt=document.createElement('span');nt.className='badge-nostock';nt.style.cssText='background:var(--rd);color:#fff;border-color:var(--rd)';nt.textContent='🏷 -'+p.dscto+'%';imgWrap.appendChild(nt);}
@@ -3542,7 +3608,7 @@ function renderCart(){
     var qty=cart[sid];var _d0=getItemDscto(sid,p);var pFinal0=_d0>0?Math.round(p.price*(1-_d0/100)):p.price;sub+=pFinal0*qty;
     var div=document.createElement('div');div.className='citem';
     var thumb=document.createElement('div');thumb.className='cithumb';
-    if(p.photo){var img=document.createElement('img');img.src=p.photo;img.alt='';thumb.appendChild(img);}
+    if(p.photo){thumb.appendChild(photoImgEl(p.photo));}
     else thumb.textContent='🔧';
     var info=document.createElement('div');info.className='ciinfo';
     var dsctoAplicado=getItemDscto(sid,p);
@@ -4550,7 +4616,11 @@ async function forzarSincroInventario(){
   status.textContent='Consultando el servidor...';
   status.style.color='var(--t3)';
 
-  var r=await sbGetAll('productos','?order=id.asc');
+  resetSyncCursors();
+  var fr=await incProductos(true);
+  var r=fr.ok||fr.list?(fr.list||getDB()):null;
+  incClientes(true).then(function(){}).catch(function(){});
+  incPedidos(true).then(function(){}).catch(function(){});
 
   btn.disabled=false;
   btn.textContent='🔄 Sincronizar';
@@ -4633,7 +4703,7 @@ function renderInventory(){
     const st=p.stock===0&&!p.allowNoStock?'Agotado':p.stock===0&&p.allowNoStock?'Sin stock / Pedido':p.stock<=p.min?'Stock bajo':'Normal';
     const bc=p.stock===0?'#e04545':p.stock<=p.min?'#d4911a':'#1aad80';
     const pct=Math.round(p.stock/mx*100);
-    const img=p.photo?`<img src="${p.photo}" alt="">`:'🔧';
+    const img=p.photo?photoImg(p.photo):'🔧';
     return `<div class="irow">
       <div class="ithumb">${img}</div>
       <div class="imid">
@@ -5707,7 +5777,7 @@ async function doMassPhotos(){
       }catch(ce){ console.warn('No se pudo comprimir '+entry.ref+', se sube tal cual:',ce.message); }
       if(_sbReady){
         // Subir a Supabase Storage
-        photoUrl=await uploadPhotoToStorage(fileToSend,'productos/'+entry.ref);
+        photoUrl=await uploadPhotoToStorage(fileToSend,'productos/'+entry.ref+'_'+Date.now());
       }
       if(!photoUrl){
         // Fallback: base64 local (ya comprimido)
@@ -5737,21 +5807,98 @@ async function doMassPhotos(){
   _massPhotosData=[];
 }
 
-// Subir archivo a Supabase Storage y devolver URL pública
+// ─── FOTOS: miniaturas + caché largo ────────────────────────────────────────
+// Cada foto se guarda 2 veces en Storage: la completa (<nombre>.jpg, ~800px) y una
+// miniatura (<nombre>_t.jpg, ~320px, ~20 KB). Listas/catálogo/inicio usan la
+// miniatura (10x menos tráfico); la completa solo al ampliar. El sufijo "#t" al
+// final de la URL guardada en productos.photo indica que la miniatura existe
+// (el servidor ignora el "#"), así todos los equipos lo saben sin cambiar la BD.
+// Archivos con nombre único + cache-control de 1 año => el navegador no vuelve a bajarlos.
+function photoFull(u){return u?String(u).replace(/#t$/,''):'';}
+function photoThumb(u){
+  if(!u)return '';
+  u=String(u);
+  if(/#t$/.test(u))return u.slice(0,-2).replace(/\.[a-z0-9]+$/i,'_t.jpg');
+  return u;
+}
+function photoErr(img){
+  var f=img.getAttribute('data-full');
+  if(f&&img.getAttribute('src')!==f){img.removeAttribute('data-full');img.src=f;}
+}
+// <img> con miniatura, carga diferida y respaldo a la foto completa
+function photoImg(u,extra){
+  if(!u)return '';
+  var t=photoThumb(u),f=photoFull(u);
+  return '<img src="'+t+'" '+(t!==f?'data-full="'+f+'" onerror="photoErr(this)" ':'')+'loading="lazy" decoding="async" alt="" '+(extra||'')+'>';
+}
+function photoImgEl(u){
+  var im=document.createElement('img');
+  var t=photoThumb(u),f=photoFull(u);
+  if(t!==f){im.setAttribute('data-full',f);im.onerror=function(){photoErr(im);};}
+  im.loading='lazy';im.decoding='async';im.alt='';im.src=t;
+  return im;
+}
+var STORAGE_CACHE='public, max-age=31536000, immutable';
+async function _storagePut(file,fullPath){
+  var storageUrl=SB_URL+'/storage/v1/object/imagenes/'+fullPath;
+  var r=await sbFetch(storageUrl,{
+    method:'POST',
+    headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Content-Type':file.type||'image/jpeg','x-upsert':'true','cache-control':'max-age=31536000'},
+    body:file
+  },30000);
+  if(r.status===402)sbMarkRestricted();
+  return r.ok;
+}
+// Sube la foto completa y su miniatura. Devuelve la URL (con "#t" si hay miniatura).
 async function uploadPhotoToStorage(file,path){
   if(!_sbReady)return null;
   try{
-    var ext=file.name.split('.').pop()||'jpg';
+    var ext=(file.name.split('.').pop()||'jpg').toLowerCase();
+    if(!/^[a-z0-9]{2,4}$/.test(ext))ext='jpg';
     var fullPath=path+'.'+ext;
-    var storageUrl=SB_URL+'/storage/v1/object/imagenes/'+fullPath;
-    var r=await sbFetch(storageUrl,{
-      method:'POST',
-      headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Content-Type':file.type||'image/jpeg','x-upsert':'true'},
-      body:file
-    },30000);
-    if(!r.ok){console.warn('Storage error:',r.status);return null;}
-    return SB_URL+'/storage/v1/object/public/imagenes/'+fullPath;
+    if(!await _storagePut(file,fullPath)){console.warn('Storage error al subir foto');return null;}
+    var url=SB_URL+'/storage/v1/object/public/imagenes/'+fullPath;
+    try{
+      var tb=await compressImage(file,320,0.7);
+      var tOk=await _storagePut(new File([tb],'t.jpg',{type:'image/jpeg'}),path+'_t.jpg');
+      if(tOk)url+='#t';
+    }catch(te){console.warn('Miniatura no generada:',te.message);}
+    return url;
   }catch(e){console.warn('uploadPhotoToStorage:',e.message);return null;}
+}
+
+// Herramienta (una sola vez, como admin): crea la miniatura de las fotos que ya
+// están en Storage y marca el producto con "#t".
+async function generarMiniaturas(){
+  if(!_sbReady){toast('Conecta Supabase primero','err');return;}
+  var base=SB_URL+'/storage/v1/object/public/imagenes/';
+  var db=getDB();
+  var todo=db.filter(function(p){return p.photo&&String(p.photo).indexOf(base)===0&&!/#t$/.test(p.photo);});
+  var btn=document.getElementById('thumbs-btn');
+  var txt=document.getElementById('thumbs-txt');
+  if(!todo.length){txt.textContent='✅ Todas las fotos ya tienen miniatura.';return;}
+  btn.disabled=true;
+  var done=0,failed=0;
+  for(var i=0;i<todo.length;i++){
+    var p=todo[i];
+    txt.textContent='Generando miniaturas '+(i+1)+'/'+todo.length+'… (no cierres esta pantalla)';
+    try{
+      var r=await fetch(p.photo,{cache:'no-store'});
+      if(!r.ok)throw new Error('HTTP '+r.status);
+      var blob=await r.blob();
+      var tb=await compressImage(blob,320,0.7);
+      var tpath=p.photo.slice(base.length).replace(/\.[a-z0-9]+$/i,'')+'_t.jpg';
+      if(!await _storagePut(new File([tb],'t.jpg',{type:'image/jpeg'}),tpath))throw new Error('subida');
+      var nu=p.photo+'#t';
+      if(await sbPatch('productos','id=eq.'+p.id,{photo:nu})){p.photo=nu;done++;}else failed++;
+    }catch(e){console.warn('Miniatura '+p.ref+':',e.message);failed++;}
+    if(_sbRestricted){txt.textContent='⛔ Supabase restringido por cuota (402). Intenta más tarde.';break;}
+    if(done%25===0)saveDB(db);
+  }
+  saveDB(db);
+  btn.disabled=false;
+  txt.textContent='Listo: '+done+' miniaturas creadas'+(failed?' · '+failed+' fallaron (puedes repetir)':'');
+  toast(done+' miniaturas creadas','ok');
 }
 
 // Convertir File a base64 (fallback sin Supabase Storage)
